@@ -6,7 +6,7 @@
 ********************************************************************************************************************/
 
 #include "uart_config.h"
-#include "gimbal_control.h"
+
 #include "jy901.h"
 #include "timer_config.h"  // get_system_time_ms
 
@@ -131,8 +131,7 @@ static void uart0_parse_param(uint8 *data)
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     UART0 数据处理函数
-// 备注信息     通道0: state, 通道1: left_speed, 通道2: right_speed, 通道3: Kp, 通道4: circle,
-//               通道6: gimbal_Kp, 通道7: gimbal_Ki, 通道8: gimbal_Kd
+// 备注信息     通道0: state, 通道1: left_speed, 通道2: right_speed, 通道3: Kp, 通道4: circle
 //-------------------------------------------------------------------------------------------------------------------
 void uart0_process_data(void)
 {
@@ -149,13 +148,14 @@ void uart0_process_data(void)
       {
         state = (uint8)param_data[0];
       }
-      else if(uart0_rx.rx_buf[3] == 2)  // 通道1: left_speed
+      else if(uart0_rx.rx_buf[3] == 2)  // 通道1: 标准速度
       {
         left_speed = (uint16)param_data[1];
+				right_speed = (uint16)param_data[1];
       }
-      else if(uart0_rx.rx_buf[3] == 3)  // 通道2: right_speed
+      else if(uart0_rx.rx_buf[3] == 3)  // 通道2: Kd
       {
-        right_speed = (uint16)param_data[2];
+        Kd = (uint16)param_data[2];
       }
       else if(uart0_rx.rx_buf[3] == 4)  // 通道3: Kp
       {

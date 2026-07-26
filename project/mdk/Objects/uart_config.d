@@ -119,5 +119,4 @@
   ..\..\libraries\zf_components\seekfree_assistant.h \
   ..\..\libraries\zf_components\seekfree_assistant_interface.h \
   ..\..\libraries\zf_device\zf_device_stepper_motor.h \
-  ..\..\libraries\zf_device\jy901.h ..\user\inc\timer_config.h \
-  ..\user\inc\gimbal_control.h
+  ..\..\libraries\zf_device\jy901.h ..\user\inc\timer_config.h
