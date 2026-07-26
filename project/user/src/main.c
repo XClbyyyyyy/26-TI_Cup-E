@@ -48,9 +48,12 @@ int main(void)
   clock_init(SYSTEM_CLOCK_80M);  // 配置 80 MHz 系统时钟，供后续外设和延时功能使用。
   debug_init();                  // 初始化 UART0 调试串口，作为逐飞助手的通信接口。
 	
-	timer_config_init();					 //时钟初始化
-	uart_config_init();						 //UART初始化
-	hc595_8digit_init();					 //8位数码管初始化
+  hc595_8digit_init();  // 初始化数码管 GPIO 和显示缓存。
+	for(uint8 i = 0;i < 8;i++)
+		hc595_8digit_buffer[i]=i;
+  timer_config_init();  // 启动 1 ms 系统计时定时器。
+  uart_config_init();  // UART 初始化。
+	gpio_init(A14,GPO,GPIO_LOW,GPO_PUSH_PULL);
 	
   // 配置虚拟示波器为四通道，并关联到数据缓冲区。
   seekfree_assistant_oscilloscope_config(&oscilloscope_obj,4, oscillocape_data);
@@ -61,21 +64,18 @@ int main(void)
   while (true)
   {
 		uint32 start_time = get_system_time_ms();
+		
+		hc595_8digit_display();
+		uart6_process_data();
     // 在此更新示波器通道数据，并按固定周期调用发送函数。
-		static uint32 last_send_time=0;				
-		if(get_system_time_ms() - last_send_time >= 10)
+		static uint32 last_send_time=0;
+		if(get_system_time_ms() - last_send_time >= 1000)
 		{
 			last_send_time = get_system_time_ms();
 			
-			oscillocape_data[0] = code_time;
-			seekfree_assistant_oscilloscope_send(&oscilloscope_obj);//虚拟示波器显示
-			
-			uart_printf(UART_6,"show.n2.val=%d",state);					//串口屏显示
-			for(uint8 i=0;i<3;i++)
-				uart_write_byte(UART_6,0xff);
-			uart_printf(UART_6,"show.n3.val=%d",circle);
-			for(uint8 i=0;i<3;i++)
-				uart_write_byte(UART_6,0xff);
+//			oscillocape_data[0] = code_time;
+//			seekfree_assistant_oscilloscope_send(&oscilloscope_obj);//虚拟示波器显示
+			uart_printf(UART_0,"code_time:%d",code_time);
 		}
 		code_time = get_system_time_ms() - start_time;
   }

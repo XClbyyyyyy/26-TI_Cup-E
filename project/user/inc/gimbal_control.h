@@ -11,8 +11,8 @@
 #include "zf_common_headfile.h"
 
 // 云台步进电机地址(硬件接线决定)
-#define GIMBAL_X_ADDR  0x03
-#define GIMBAL_Y_ADDR  0x04
+#define GIMBAL_X_ADDR  0x01
+#define GIMBAL_Y_ADDR  0x02
 
 // 可调PID参数(全局变量, 方便串口调试时实时修改)
 extern float gimbal_Kp;

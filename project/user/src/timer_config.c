@@ -48,8 +48,8 @@ static void timer_pit_callback(uint32 event, void *ptr)
   if(circle > 0 && total_pulses >= circle * (688000.0f))  // 每圈赛道额外补偿1.5圈车轮(48000电机脉冲)
   {
     state = 0;
-    total_pulses = 0;
   }
+    total_pulses = 0;
 }
 
 //-------------------------------------------------------------------------------------------------------------------

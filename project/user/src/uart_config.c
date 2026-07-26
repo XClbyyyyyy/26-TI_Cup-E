@@ -165,18 +165,6 @@ void uart0_process_data(void)
       {
         circle = (uint8)param_data[4];
       }
-      else if(uart0_rx.rx_buf[3] == 6)  // 通道5: gimbal_Kp
-      {
-        gimbal_Kp = param_data[5];
-      }
-      else if(uart0_rx.rx_buf[3] == 7)  // 通道6: gimbal_Ki
-      {
-        gimbal_Ki = param_data[6];
-      }
-      else if(uart0_rx.rx_buf[3] == 8)  // 通道7: gimbal_Kd
-      {
-        gimbal_Kd = param_data[7];
-      }
     }
     uart0_rx.frame_ready = 0;
   }
@@ -660,9 +648,9 @@ void uart6_process_data(void)
     {
       state = uart6_rx.rx_buf[0];   // 第2字节为运行状态
       circle = uart6_rx.rx_buf[1];  // 第3字节为目标圈数
-      uart_printf(UART_0, "screen rx: 5B %02X %02X 5D, state=%d, circle=%d\r\n", uart6_rx.rx_buf[0], uart6_rx.rx_buf[1], state, circle);
+			uart_printf(UART_6,"show.n2.val=%d\xff\xff\xff",state);					//串口屏显示
+			uart_printf(UART_6,"show.n3.val=%d\xff\xff\xff",circle);
     }
-
     uart6_rx.frame_ready = 0;
   }
 }

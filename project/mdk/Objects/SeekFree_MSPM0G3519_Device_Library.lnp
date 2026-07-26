@@ -3,7 +3,6 @@
 ".\objects\isr.o"
 ".\objects\uart_config.o"
 ".\objects\timer_config.o"
-".\objects\gimbal_control.o"
 ".\objects\zf_common_clock.o"
 ".\objects\zf_common_debug.o"
 ".\objects\zf_common_fifo.o"

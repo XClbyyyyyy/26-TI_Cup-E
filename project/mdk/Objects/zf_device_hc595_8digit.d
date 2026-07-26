@@ -91,4 +91,5 @@
   ..\..\libraries\sdk\ti\driverlib\dl_vref.h \
   ..\..\libraries\sdk\ti\driverlib\dl_wwdt.h \
   ..\..\libraries\sdk\ti\driverlib\m0p\dl_interrupt.h \
-  ..\..\libraries\sdk\ti\driverlib\m0p\dl_systick.h
+  ..\..\libraries\sdk\ti\driverlib\m0p\dl_systick.h \
+  ..\..\libraries\zf_driver\zf_driver_delay.h

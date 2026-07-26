@@ -422,16 +422,6 @@
               <FileType>5</FileType>
               <FilePath>..\user\inc\timer_config.h</FilePath>
             </File>
-            <File>
-              <FileName>gimbal_control.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\user\src\gimbal_control.c</FilePath>
-            </File>
-            <File>
-              <FileName>gimbal_control.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>..\user\inc\gimbal_control.h</FilePath>
-            </File>
           </Files>
         </Group>
         <Group>
