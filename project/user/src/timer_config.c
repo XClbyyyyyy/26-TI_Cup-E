@@ -16,7 +16,7 @@ volatile uint32 system_timer_ms = 0;  // 系统定时器计数(毫秒)
 volatile float  total_pulses    = 0;  // 累积脉冲数
 
 // left_speed, right_speed, and state are defined in uart_config.c; circle and out_of_line are defined in main.c.
-extern uint8 circle;
+extern volatile uint8 circle;
 extern uint8 state;
 extern volatile uint8 out_of_line;
 

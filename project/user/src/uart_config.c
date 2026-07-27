@@ -10,7 +10,7 @@
 #include "jy901.h"
 #include "timer_config.h"  // get_system_time_ms
 
-extern uint8 circle;  // 运动圈数, 在 main.c 中定义
+extern volatile uint8 circle;  // 运动圈数, 在 main.c 中定义
 
 //-------------------------------------------------------------------------------------------------------------------
 // 接收结构体定义
@@ -20,15 +20,15 @@ uart_rx_struct uart1_rx;  // UART1 接收结构体 - 摄像头
 uart_rx_struct uart3_rx;  // UART3 接收结构体 - 步进电机
 uart_rx_struct uart5_rx;  // UART5 接收结构体 - 灰度传感器
 uart_rx_struct uart6_rx;  // UART6 接收结构体 - 串口屏
-float param_data[8];  // 参数调试数据: 通道0-7
+float param_data[8];      // 参数调试数据: 通道0-7
 
-uint16 camera_target_x;  // 摄像头目标X坐标
-uint16 camera_target_y;  // 摄像头目标Y坐标
-int16 camera_move_x;     // 摄像头偏移X坐标
-int16 camera_move_y;     // 摄像头偏移Y坐标
-uint8 camera_mode;       // 摄像头模式: 1=中心点, 2=圆周点
-uint16 camera_sequence;  // 帧序号(递增)
-int16 camera_distance;   // 测距结果(mm), -1=无效
+uint16 camera_target_x;     // 摄像头目标X坐标
+uint16 camera_target_y;     // 摄像头目标Y坐标
+int16 camera_move_x;        // 摄像头偏移X坐标
+int16 camera_move_y;        // 摄像头偏移Y坐标
+uint8 camera_mode;          // 摄像头模式: 1=中心点, 2=圆周点
+uint16 camera_sequence;     // 帧序号(递增)
+int16 camera_distance;      // 测距结果(mm), -1=无效
 uint8 camera_target_valid;  // 摄像头有效靶标标志: 0=无靶, 1=有靶
 
 // UART1最新完整帧缓存：中断始终覆盖旧帧，主循环只处理最后收到的一帧。
@@ -37,13 +37,14 @@ static volatile uint8 uart1_frame_buf[129];  // 中断保存的最新POS文本�
 static volatile uint8 uart1_frame_len;       // 最新完整帧的有效数据长度，不包含换行符
 static volatile uint8 uart1_frame_ready;     // 1=有可处理的新完整帧，0=没有新帧
 
-int16 grayscale_offset;  // 灰度传感器偏移量
-uint8 grayscale_status;  // 灰度传感器状态: 0=无线, 非0=检测到线数量
+int16 grayscale_offset;     // 灰度传感器偏移量
+uint8 grayscale_status;     // 灰度传感器状态: 0=无线, 非0=检测到线数量
 uint8 state = 0;            // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他
-uint16 left_speed = 700;   // 左轮速度(RPM)
-uint16 right_speed = 700;  // 右轮速度(RPM)
-float Kp = 0.25f;         // 巡线比例系数: 偏移400时提供100RPM修正
-float Kd = 0.03f;         // 巡线微分系数: 单帧偏移变化400时提供12RPM阻尼
+uint8 last_state=0;         // 上一次运行状态
+uint16 left_speed = 700;    // 左轮速度(RPM)
+uint16 right_speed = 700;   // 右轮速度(RPM)
+float Kp = 0.25f;           // 巡线比例系数: 偏移400时提供100RPM修正
+float Kd = 0.03f;           // 巡线微分系数: 单帧偏移变化400时提供12RPM阻尼
 
 
 //====================================================================================================================
@@ -131,7 +132,7 @@ static void uart0_parse_param(uint8 *data)
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     UART0 数据处理函数
-// 备注信息     通道0: state, 通道1: left_speed, 通道2: right_speed, 通道3: Kp, 通道4: circle
+// 备注信息     通道0: state, 通道1: 标准速度, 通道2: Kd, 通道3: Kp, 通道4: circle
 //-------------------------------------------------------------------------------------------------------------------
 void uart0_process_data(void)
 {
@@ -146,6 +147,7 @@ void uart0_process_data(void)
       // 根据通道号更新对应变量
       if(uart0_rx.rx_buf[3] == 1)  // 通道0: state
       {
+        last_state = state;           // 保存上一次运行状态
         state = (uint8)param_data[0];
       }
       else if(uart0_rx.rx_buf[3] == 2)  // 通道1: 标准速度
@@ -184,10 +186,10 @@ void uart1_init_camera(void)
   uart_set_interrupt_config(UART_1, UART_INTERRUPT_CONFIG_RX_ENABLE);
   // 摄像头使用921600波特率；发生接收错误时也进入UART1中断，读空FIFO后继续接收。
   DL_UART_Main_enableInterrupt(UART1,
-                               DL_UART_MAIN_INTERRUPT_OVERRUN_ERROR |
-                               DL_UART_MAIN_INTERRUPT_BREAK_ERROR |
-                               DL_UART_MAIN_INTERRUPT_PARITY_ERROR |
-                               DL_UART_MAIN_INTERRUPT_FRAMING_ERROR |
+                               DL_UART_MAIN_INTERRUPT_OVERRUN_ERROR    |
+                               DL_UART_MAIN_INTERRUPT_BREAK_ERROR      |
+                               DL_UART_MAIN_INTERRUPT_PARITY_ERROR     |
+                               DL_UART_MAIN_INTERRUPT_FRAMING_ERROR    |
                                DL_UART_MAIN_INTERRUPT_RX_TIMEOUT_ERROR |
                                DL_UART_MAIN_INTERRUPT_NOISE_ERROR);
   NVIC_SetPriority(UART1_INT_IRQn, 0);
@@ -646,10 +648,9 @@ void uart6_process_data(void)
   {
     if(uart6_rx.rx_len == 2)
     {
+      last_state = state;           // 保存上一次运行状态
       state = uart6_rx.rx_buf[0];   // 第2字节为运行状态
       circle = uart6_rx.rx_buf[1];  // 第3字节为目标圈数
-			uart_printf(UART_6,"show.n2.val=%d\xff\xff\xff",state);					//串口屏显示
-			uart_printf(UART_6,"show.n3.val=%d\xff\xff\xff",circle);
     }
     uart6_rx.frame_ready = 0;
   }
@@ -664,12 +665,12 @@ void uart6_process_data(void)
 //-------------------------------------------------------------------------------------------------------------------
 void uart_config_init(void)
 {
+  uart0_init_debug();  
+  uart1_init_camera();  
   uart3_init_motor();
-  uart1_init_camera();
-  uart6_init_screen();
-  uart0_init_debug();
   uart4_init_jy901();
   uart5_init_grayscale();  // UART5灰度传感器串口通信
+  uart6_init_screen();
 }
 
 //====================================================================================================================

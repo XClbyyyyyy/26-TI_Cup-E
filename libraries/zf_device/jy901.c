@@ -29,7 +29,7 @@ static uint8 angle_mid_count = 0;              // 已收到的Z轴中值滤波�
 static uint8 angle_filter_count = 0;           // Number of valid angle frames in the average filter
 static float angle_raw = 0.0f;                 // 滤波后的Z轴原始角度(°)
 static float angle_zero = 0.0f;                // 待机校准得到的Z轴零点角度(°)
-static float angle_drift_offset = 0.0f;         // Z轴累计角度零漂补偿量(单位：°)。
+static float angle_drift_offset = 0.0f;        // Z轴累计角度零漂补偿量(单位：°)。
 static uint8 angle_valid = 0;                  // Z轴零点有效标志: 0=未校零, 1=已校零
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -44,12 +44,12 @@ void jy901_init(void)
   jy901_rx.gyro_ready = 0;
   jy901_rx.angle_ready = 0;
 
-  jy901_data.gyro_x = 0.0f;
-  jy901_data.gyro_y = 0.0f;
-  jy901_data.gyro_z = 0.0f;
-  jy901_data.angle_x = 0.0f;
-  jy901_data.angle_y = 0.0f;
-  jy901_data.angle_z = 0.0f;
+  jy901_data.gyro_x = 0.0f;    // X轴角速度(°/s)
+  jy901_data.gyro_y = 0.0f;    // Y轴角速度(°/s)
+  jy901_data.gyro_z = 0.0f;    // Z轴角速度(°/s)
+  jy901_data.angle_x = 0.0f;   // X轴角度(°)
+  jy901_data.angle_y = 0.0f;   // Y轴角度(°)
+  jy901_data.angle_z = 0.0f;   // Z轴角度(°)
 
   // 初始化滤波缓冲区
   for(i = 0; i < 10; i++)
@@ -283,7 +283,7 @@ static void jy901_parse_angle(uint8 *data)
       jy901_data.angle_z -= 360.0f;  // 处理+180°边界环绕
     else if(jy901_data.angle_z < -180.0f)
       jy901_data.angle_z += 360.0f;  // 处理-180°边界环绕
-    angle_drift_offset += 0.001058f;  // JY901为100Hz时，每帧固定累计补偿0.001058°。
+    angle_drift_offset += 0.001095f;  // JY901为100Hz时，每帧固定累计补偿0.001095°。
   }
   else
     jy901_data.angle_z = angle_raw;  // 尚未校零时保留原始角度

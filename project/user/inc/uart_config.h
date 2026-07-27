@@ -64,24 +64,25 @@ extern uart_rx_struct uart1_rx;
 extern uart_rx_struct uart3_rx;
 extern uart_rx_struct uart5_rx;
 extern uart_rx_struct uart6_rx;
-extern float param_data[8];  // 参数调试数据: 通道0-7
-extern uint16 camera_target_x;  // 摄像头目标X坐标
-extern uint16 camera_target_y;  // 摄像头目标Y坐标
-extern int16 camera_move_x;  // 摄像头X偏移
-extern int16 camera_move_y;  // 摄像头Y偏移
-extern uint8 camera_mode;    // 摄像头模式: 1=中心点, 2=圆周点
-extern uint16 camera_sequence;  // 帧序号(递增)
-extern int16 camera_distance;   // 测距结果(mm), -1=无效
+extern float param_data[8];        // 参数调试数据: 通道0-7
+extern uint16 camera_target_x;     // 摄像头目标X坐标
+extern uint16 camera_target_y;     // 摄像头目标Y坐标
+extern int16 camera_move_x;        // 摄像头X偏移
+extern int16 camera_move_y;        // 摄像头Y偏移
+extern uint8 camera_mode;          // 摄像头模式: 1=中心点, 2=圆周点
+extern uint16 camera_sequence;     // 帧序号(递增)
+extern int16 camera_distance;      // 测距结果(mm), -1=无效
 extern uint8 camera_target_valid;  // 摄像头有效靶标标志: 0=无靶, 1=有靶
-extern int16 grayscale_offset;  // 灰度传感器偏移量
-extern uint8 grayscale_status;  // 灰度传感器状态: 0=无线, 非0=检测到线数量
-extern uint8 state;              // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他
-extern uint8 circle;            // 目标圈数 (UART0通道4可调, 0=不限)
-extern uint16 left_speed;        // 左轮速度(RPM)
-extern uint16 right_speed;       // 右轮速度(RPM)
-extern float Kp;                // 巡线比例系数
-extern float Kd;                // 巡线微分系数
-extern volatile uint8 out_of_line;  // 出线标志: 1=无压线，0=检测到赛道
+extern int16 grayscale_offset;     // 灰度传感器偏移量
+extern uint8 grayscale_status;     // 灰度传感器状态: 0=无线, 非0=检测到线数量
+extern uint8 state;                // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他
+extern uint8 last_state;           // 上一次运行状态
+extern volatile uint8 circle;               // 目标圈数 (UART0通道4可调, 0=不限)
+extern uint16 left_speed;          // 左轮速度(RPM)
+extern uint16 right_speed;         // 右轮速度(RPM)
+extern float Kp;                   // 巡线比例系数
+extern float Kd;                   // 巡线微分系数
+extern volatile uint8 out_of_line; // 出线标志: 1=无压线，0=检测到赛道
 //-------------------------------------------------------------------------------------------------------------------
 // 函数声明
 //-------------------------------------------------------------------------------------------------------------------

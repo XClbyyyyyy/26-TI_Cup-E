@@ -35,9 +35,7 @@
 
 #include "zf_common_headfile.h"
 
-seekfree_assistant_oscilloscope_struct oscilloscope_obj;  // 虚拟示波器配置对象，保存通道数量和数据缓冲区地址。
-float oscillocape_data[4];  															// 虚拟示波器四个通道的浮点数据缓冲区。
-uint8 circle = 0;                 												// 目标圈数，供串口配置和定时器逻辑使用。
+volatile uint8 circle = 0;                 								// 目标圈数，供串口配置和定时器逻辑使用。
 volatile uint8 out_of_line = 0;     											// 出线标志，供定时器逻辑读取。
 
 /**
@@ -45,42 +43,48 @@ volatile uint8 out_of_line = 0;     											// 出线标志，供定时器逻
  */
 int main(void)
 {
-  clock_init(SYSTEM_CLOCK_80M);  // 配置 80 MHz 系统时钟，供后续外设和延时功能使用。
-  debug_init();                  // 初始化 UART0 调试串口，作为逐飞助手的通信接口。
-	
-  hc595_8digit_init();  // 初始化数码管 GPIO 和显示缓存。
+  clock_init(SYSTEM_CLOCK_80M); 						 // 配置 80 MHz 系统时钟，供后续外设和延时功能使用。
+  debug_init();                 						 // 初始化 UART0 调试串口，作为逐飞助手的通信接口。
+
+	gpio_init(A14,GPO,GPIO_LOW,GPO_PUSH_PULL); // 初始化 A14 为推挽输出，点亮板载LED
+  hc595_8digit_init(); 											 // 初始化数码管 GPIO 和显示缓存。
+	jy901_init(); 													 	 // 初始化 JY901 姿态传感器，供后续读取角速度和角度数据。
 	for(uint8 i = 0;i < 8;i++)
 		hc595_8digit_buffer[i]=i;
-  timer_config_init();  // 启动 1 ms 系统计时定时器。
-  uart_config_init();  // UART 初始化。
-	gpio_init(A14,GPO,GPIO_LOW,GPO_PUSH_PULL);
+  timer_config_init();  										 // 启动 1 ms 系统计时定时器。
+  uart_config_init();  											 // UART 初始化。
 	
-  // 配置虚拟示波器为四通道，并关联到数据缓冲区。
-  seekfree_assistant_oscilloscope_config(&oscilloscope_obj,4, oscillocape_data);
-  // 将逐飞助手的收发接口绑定到 UART0 调试串口。
-  seekfree_assistant_interface_init(SEEKFREE_ASSISTANT_DEBUG_UART);
-	
-	uint8 code_time = 0;										//代码运行时间
+	uint8 code_time = 0;								//代码运行时间
   while (true)
   {
 		uint32 start_time = get_system_time_ms();
 		
-		hc595_8digit_display();								// 刷新数码管显示。
-		uart0_process_data();									// 处理调试串口数据，更新参数变量。
-		uart1_process_data();									// 处理摄像头数据，更新目标坐标和偏移量。
-		uart3_process_data();									// 处理步进电机数据，更新灰度传感器状态和偏移量。
-		uart5_process_data();									// 处理灰度传感器数据，更新灰度传感器状态和偏移量。
-		uart6_process_data();									// 处理串口屏数据，更新运行状态和目标圈数。
-		
-    // 在此更新示波器通道数据，并按固定周期调用发送函数。
+		hc595_8digit_display();						// 刷新数码管显示。
+		uart0_process_data();							// 处理调试串口数据，更新参数变量。
+		uart1_process_data();							// 处理摄像头数据，更新目标坐标和偏移量。
+		uart3_process_data();							// 处理步进电机数据，更新步进电机状态和目标位置。
+		jy901_process_data();							// 处理姿态传感器数据，更新角速度和角度。
+		uart5_process_data();							// 处理灰度传感器数据，更新灰度传感器状态和偏移量。
+		uart6_process_data();							// 处理串口屏数据，更新运行状态和目标圈数。
+
+		if(last_state != state)
+		{
+			last_state = state; 
+			uart_printf(UART_6,"show.n2.val=%d\xff\xff\xff",state);					//串口屏显示
+			uart_printf(UART_6,"show.n3.val=%d\xff\xff\xff",circle);
+		}
+		if(state == 0)
+		{
+
+		}
+
 		static uint32 last_send_time=0;
 		if(get_system_time_ms() - last_send_time >= 1000)
 		{
 			last_send_time = get_system_time_ms();
-			
-//			oscillocape_data[0] = code_time;
-//			seekfree_assistant_oscilloscope_send(&oscilloscope_obj);//虚拟示波器显示
-			uart_printf(UART_0,"code_time:%d",code_time);
+
+			uart_printf(UART_0,"code_time:%d\r\n",code_time);
+			uart_printf(UART_0,"jy901_data.angle_z:%.2f\r\n", jy901_data.angle_z);
 		}
 		code_time = get_system_time_ms() - start_time;
   }
