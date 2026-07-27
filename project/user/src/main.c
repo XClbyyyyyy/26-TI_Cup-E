@@ -65,8 +65,13 @@ int main(void)
   {
 		uint32 start_time = get_system_time_ms();
 		
-		hc595_8digit_display();
-		uart6_process_data();
+		hc595_8digit_display();								// 刷新数码管显示。
+		uart0_process_data();									// 处理调试串口数据，更新参数变量。
+		uart1_process_data();									// 处理摄像头数据，更新目标坐标和偏移量。
+		uart3_process_data();									// 处理步进电机数据，更新灰度传感器状态和偏移量。
+		uart5_process_data();									// 处理灰度传感器数据，更新灰度传感器状态和偏移量。
+		uart6_process_data();									// 处理串口屏数据，更新运行状态和目标圈数。
+		
     // 在此更新示波器通道数据，并按固定周期调用发送函数。
 		static uint32 last_send_time=0;
 		if(get_system_time_ms() - last_send_time >= 1000)
