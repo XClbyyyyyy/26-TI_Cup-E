@@ -34,7 +34,7 @@ static volatile uint8 uart1_frame_ready;     // 1=有可处理的新完整帧，
 
 uint8 state = 0;            // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他
 uint8 last_state=0;         // 上一次运行状态
-
+extern uint8 count;         // 计数器
 
 //====================================================================================================================
 // UART0 - 串口调试
@@ -486,7 +486,7 @@ void uart6_rx_callback(uint32 state, void *ptr)
       }
       else if(uart6_rx.state == 2)
       {
-        uart6_rx.rx_buf[1] = temp_data;  // 保存circle字节
+        uart6_rx.rx_buf[1] = temp_data;  // 保存count字节
         uart6_rx.rx_len = 2;
         uart6_rx.state = 3;
       }

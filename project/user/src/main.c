@@ -35,22 +35,30 @@
 
 #include "zf_common_headfile.h"
 
+
 /**
  * @brief 程序入口，完成基础初始化后进入主循环。
  */
+//PB7无法输出PWM波，暂时不使用此引脚
+volatile uint8 count=0;											//计数器
+
 int main(void)
 {
-  clock_init(SYSTEM_CLOCK_80M); 						 // 配置 80 MHz 系统时钟，供后续外设和延时功能使用。
-  debug_init();                 						 // 初始化 UART0 调试串口，作为逐飞助手的通信接口。
+  clock_init(SYSTEM_CLOCK_80M); 								 // 配置 80 MHz 系统时钟，供后续外设和延时功能使用。
+  debug_init();                 								 // 初始化 UART0 调试串口，作为逐飞助手的通信接口。
 
-  timer_config_init();  										 // 启动 1 ms 系统计时定时器。
-  uart_config_init();  											 // UART 初始化
+  timer_config_init();  												 // 启动 1 ms 系统计时定时器。
+  uart_config_init();  													 // UART 初始化
+	gpio_init(A14, GPO, GPIO_LOW, GPO_PUSH_PULL);	 // A14 推挽输出，打开板载LED
+	// gpio_init(A15, GPO, GPIO_LOW, GPO_PUSH_PULL);	 // A15 推挽输出，打开电磁铁
 
-	uint8 code_time = 0;								//代码运行时间
+	uint16 code_time = 0;								//代码运行时间
 	uint8 delay_time = 0;								//延时计数
 	uint8 take_flag=0,put_flag=0;				//取放标志位
-	uint8 stop_flag=0;								//急停标志位
-	uint8 count=0;											//计数器
+	uint8 stop_flag=0;									//急停标志位
+
+	uint8 z_clk=0;											//Z轴脉冲数
+
   while (true)
   {
 		uint32 start_time = get_system_time_ms();
@@ -81,8 +89,9 @@ int main(void)
 			}
 		}
 		//X轴和Y轴一起运动→完毕后Z轴运动→完毕后立即打开电磁铁视为取物成功
-		//取物成功后XYT轴开始运动Z轴回到原来的高度→XY运动完毕后Z轴开始运动，完毕后关闭电磁铁视为放物成功
+		//取物成功后XYT轴开始运动，Z轴回到原来的高度→XY运动完毕后Z轴开始运动→完毕后关闭电磁铁视为放物成功
 		//放物成功后回到原点开始进行第二步，循环直到取完拼图
+		//X轴电机转一圈4cm，Y轴电机转一圈
 		if(state == 1)
 		{
 			if(count < 4)
@@ -91,20 +100,24 @@ int main(void)
 				{
 					take_flag = 0;
 					put_flag = 0;
-					count++;
-					stepper_origin_trigger_return(STEPPER_ADDR_X,0);		//X轴回零
+					count++;																								
+					stepper_origin_trigger_return(STEPPER_ADDR_X,0);				//X轴回零
 					system_delay_ms(5);
-					stepper_origin_trigger_return(STEPPER_ADDR_Y,0);		//Y轴回零
+					stepper_origin_trigger_return(STEPPER_ADDR_Y,0);				//Y轴回零
 					system_delay_ms(5);
-					stepper_origin_trigger_return(STEPPER_ADDR_Z,0);		//Z轴回零
+					stepper_origin_trigger_return(STEPPER_ADDR_Z,0);				//Z轴回零
 					system_delay_ms(5);
 				}
 				else if(take_flag == 1 && put_flag == 0)
 				{
+					stepper_pos_control(STEPPER_ADDR_Z,0,600,0,1200,1);		//Z轴运动(未确定具体脉冲数)
+					system_delay_ms(5);
 					put_flag = 1;
 				}
 				else if(take_flag == 0 && put_flag == 0)
 				{
+					stepper_pos_control(STEPPER_ADDR_Z,1,600,0,1200,1);		//Z轴运动(未确定具体脉冲数)
+					system_delay_ms(5);
 					take_flag = 1;
 				}
 			}
@@ -114,8 +127,9 @@ int main(void)
 				state = 0;
 			}
 		}
+
 		static uint32 last_send_time=0;
-		if(get_system_time_ms() - last_send_time >= 1000)					// 每秒发送一次调试信息
+		if(get_system_time_ms() - last_send_time >= 1000)							// 每秒发送一次调试信息
 		{
 			last_send_time = get_system_time_ms();
 
