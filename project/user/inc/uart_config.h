@@ -19,8 +19,6 @@
 //   POS,mode,seq,x,y,distance_mm\n  ASCII协议
 //   发"1\n"切换模式1(中心点), 发"2\n"切换模式2(圆周点)
 // UART3: 步进电机(115200, 优先级1, TX=A14/RX=A13)
-// UART4: JY901传感器(115200, 优先级3, TX=B17/RX=B18)
-// UART5: 灰度传感器(115200, 优先级5, TX=A1/RX=A0) - 改用IO口PB10-PB16
 // UART6: 串口屏(230400, 优先级4, TX=B22/RX=B21)
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -62,9 +60,9 @@ typedef struct
 extern uart_rx_struct uart0_rx;
 extern uart_rx_struct uart1_rx;
 extern uart_rx_struct uart3_rx;
-extern uart_rx_struct uart5_rx;
 extern uart_rx_struct uart6_rx;
 extern float param_data[8];        // 参数调试数据: 通道0-7
+
 extern uint16 camera_target_x;     // 摄像头目标X坐标
 extern uint16 camera_target_y;     // 摄像头目标Y坐标
 extern int16 camera_move_x;        // 摄像头X偏移
@@ -73,16 +71,9 @@ extern uint8 camera_mode;          // 摄像头模式: 1=中心点, 2=圆周点
 extern uint16 camera_sequence;     // 帧序号(递增)
 extern int16 camera_distance;      // 测距结果(mm), -1=无效
 extern uint8 camera_target_valid;  // 摄像头有效靶标标志: 0=无靶, 1=有靶
-extern int16 grayscale_offset;     // 灰度传感器偏移量
-extern uint8 grayscale_status;     // 灰度传感器状态: 0=无线, 非0=检测到线数量
+
 extern uint8 state;                // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他
 extern uint8 last_state;           // 上一次运行状态
-extern volatile uint8 circle;               // 目标圈数 (UART0通道4可调, 0=不限)
-extern uint16 left_speed;          // 左轮速度(RPM)
-extern uint16 right_speed;         // 右轮速度(RPM)
-extern float Kp;                   // 巡线比例系数
-extern float Kd;                   // 巡线微分系数
-extern volatile uint8 out_of_line; // 出线标志: 1=无压线，0=检测到赛道
 //-------------------------------------------------------------------------------------------------------------------
 // 函数声明
 //-------------------------------------------------------------------------------------------------------------------
@@ -101,11 +92,8 @@ void uart3_init_motor(void);
 void uart3_rx_callback(uint32 state, void *ptr);
 void uart3_process_data(void);
 
-void uart4_init_jy901(void);
-
-void uart5_init_grayscale(void);    // UART5灰度传感器串口通信
+void uart4_rx_callback(uint32 state, void *ptr);
 void uart5_rx_callback(uint32 state, void *ptr);
-void uart5_process_data(void);
 
 void uart6_init_screen(void);
 void uart6_rx_callback(uint32 state, void *ptr);

@@ -2,15 +2,11 @@
 * 本文件基于逐飞科技 MSPM0G3519 开源库开发
 * 
 * 文件名称          uart_config
-* 备注信息          串口配置 (UART0-6)
+* 备注信息          串口配置（UART0、UART1、UART3、UART6）
 ********************************************************************************************************************/
 
 #include "uart_config.h"
-
-#include "jy901.h"
 #include "timer_config.h"  // get_system_time_ms
-
-extern volatile uint8 circle;  // 运动圈数, 在 main.c 中定义
 
 //-------------------------------------------------------------------------------------------------------------------
 // 接收结构体定义
@@ -18,7 +14,6 @@ extern volatile uint8 circle;  // 运动圈数, 在 main.c 中定义
 uart_rx_struct uart0_rx;  // UART0 接收结构体 - 串口调试
 uart_rx_struct uart1_rx;  // UART1 接收结构体 - 摄像头
 uart_rx_struct uart3_rx;  // UART3 接收结构体 - 步进电机
-uart_rx_struct uart5_rx;  // UART5 接收结构体 - 灰度传感器
 uart_rx_struct uart6_rx;  // UART6 接收结构体 - 串口屏
 float param_data[8];      // 参数调试数据: 通道0-7
 
@@ -37,14 +32,8 @@ static volatile uint8 uart1_frame_buf[129];  // 中断保存的最新POS文本�
 static volatile uint8 uart1_frame_len;       // 最新完整帧的有效数据长度，不包含换行符
 static volatile uint8 uart1_frame_ready;     // 1=有可处理的新完整帧，0=没有新帧
 
-int16 grayscale_offset;     // 灰度传感器偏移量
-uint8 grayscale_status;     // 灰度传感器状态: 0=无线, 非0=检测到线数量
 uint8 state = 0;            // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他
 uint8 last_state=0;         // 上一次运行状态
-uint16 left_speed = 700;    // 左轮速度(RPM)
-uint16 right_speed = 700;   // 右轮速度(RPM)
-float Kp = 0.25f;           // 巡线比例系数: 偏移400时提供100RPM修正
-float Kd = 0.03f;           // 巡线微分系数: 单帧偏移变化400时提供12RPM阻尼
 
 
 //====================================================================================================================
@@ -150,23 +139,6 @@ void uart0_process_data(void)
         last_state = state;           // 保存上一次运行状态
         state = (uint8)param_data[0];
       }
-      else if(uart0_rx.rx_buf[3] == 2)  // 通道1: 标准速度
-      {
-        left_speed = (uint16)param_data[1];
-				right_speed = (uint16)param_data[1];
-      }
-      else if(uart0_rx.rx_buf[3] == 3)  // 通道2: Kd
-      {
-        Kd = (uint16)param_data[2];
-      }
-      else if(uart0_rx.rx_buf[3] == 4)  // 通道3: Kp
-      {
-        Kp = param_data[3];
-      }
-      else if(uart0_rx.rx_buf[3] == 5)  // 通道4: circle (目标圈数)
-      {
-        circle = (uint8)param_data[4];
-      }
     }
     uart0_rx.frame_ready = 0;
   }
@@ -198,7 +170,6 @@ void uart1_init_camera(void)
   uart1_rx.frame_ready = 0;
   uart1_frame_len = 0;
   uart1_frame_ready = 0;
-
   camera_mode = 0;
   camera_sequence = 0;
   camera_target_x = 0;
@@ -360,17 +331,9 @@ void uart1_process_data(void)
     camera_sequence = seq;
     camera_target_x = x;
     camera_target_y = y;
-    int16 y_compensation = 5;
-    if(dist > 500)
-    {
-      y_compensation += (dist - 500) / 100;
-      if(y_compensation > 15)
-        y_compensation = 15;
-    }
 
     camera_move_x = (int16)x - 320 + 15;
-    // 距离不超过500mm时补偿为+5；之后每增加200mm增加1像素，最大为+15。
-    camera_move_y = (int16)y - 240 + y_compensation;
+    camera_move_y = (int16)y - 240 + 5 ;
     camera_distance = dist;
     if(dist >= 0)
       camera_target_valid = 1;  // 距离非负表示本帧检测到有效靶标
@@ -453,117 +416,23 @@ void uart3_process_data(void)
 }
 
 //====================================================================================================================
-// UART4 - JY901传感器
+// UART4/UART5 - 预留接收回调
 //====================================================================================================================
 
 //-------------------------------------------------------------------------------------------------------------------
-// 函数简介     UART4 初始化
+// 函数简介     UART4 接收回调预留函数
+// 备注信息     当前不处理 UART4 接收数据。
 //-------------------------------------------------------------------------------------------------------------------
-void uart4_init_jy901(void)
+void uart4_rx_callback(uint32 state, void *ptr)
 {
-  uart_init(UART_4, 115200, UART4_TX_PIN, UART4_RX_PIN);
-  uart_set_callback(UART_4, jy901_rx_callback, NULL);
-  uart_set_interrupt_config(UART_4, UART_INTERRUPT_CONFIG_RX_ENABLE);
-  NVIC_SetPriority(UART4_INT_IRQn, 3);
-
-  jy901_init();
-}
-
-//====================================================================================================================
-// UART5 - 灰度传感器（串口方式）
-//====================================================================================================================
-
-//-------------------------------------------------------------------------------------------------------------------
-// 函数简介     UART5 初始化
-// 备注信息     协议格式: 0x75 + Data0 + Data1(偏移高8位) + Data2(偏移低8位) + 0x04 (共5字节)
-//               Data0: bit7=空闲, bit6=出线检测, bit5=正负(0=负,1=正), bit4-0=压线数量
-//-------------------------------------------------------------------------------------------------------------------
-void uart5_init_grayscale(void)
-{
-  uart_init(UART_5, 115200, UART5_TX_PIN, UART5_RX_PIN);
-  uart_set_callback(UART_5, uart5_rx_callback, NULL);
-  uart_set_interrupt_config(UART_5, UART_INTERRUPT_CONFIG_RX_ENABLE);
-  NVIC_SetPriority(UART5_INT_IRQn, 4);
-
-  uart5_rx.state = 0;  // 状态0: 等待帧头
-  uart5_rx.rx_len = 0;
-  uart5_rx.frame_ready = 0;
-  grayscale_offset = 0;
-  grayscale_status = 0;
-
-  // 灰度传感器采用查询模式，初始化后立即请求第一帧数据。
-  uart_write_byte(UART_5, 0x57);
-  uart_write_byte(UART_5, 0x01);
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// 函数简介     UART5 接收回调函数 (定长包模式)
-// 协议格式: 0x75 + Data0 + Data1 + Data2 + 0x04
-// Data0: bit7=空闲, bit6=出线检测, bit5=正负, bit4-0=压线数量
-// Data1: 偏移值高八位, Data2: 偏移值低八位
+// 函数简介     UART5 接收回调预留函数
+// 备注信息     当前不处理 UART5 接收数据。
 //-------------------------------------------------------------------------------------------------------------------
 void uart5_rx_callback(uint32 state, void *ptr)
 {
-  uint8 temp_data = 0;  // 临时存储接收到的字节
-
-  if(state == UART_INTERRUPT_STATE_RX)
-  {
-    if(uart_query_byte(UART_5, &temp_data) == 1)
-    {
-      if(uart5_rx.state == 0)  // 状态0: 等待帧头0x75
-      {
-        if(temp_data == 0x75)
-        {
-          uart5_rx.state = 1;
-          uart5_rx.rx_len = 0;
-          uart5_rx.rx_buf[0] = temp_data;
-          uart5_rx.rx_len = 1;
-        }
-      }
-      else  // 状态1: 接收后续数据
-      {
-        uart5_rx.rx_buf[uart5_rx.rx_len] = temp_data;
-        uart5_rx.rx_len++;
-
-        if(uart5_rx.rx_len >= 5)  // 接收完成5字节
-        {
-          if(uart5_rx.rx_buf[4] == 0x04)  // 校验帧尾
-          {
-            uart5_rx.frame_ready = 1;
-          }
-          uart5_rx.state = 0;  // 重置状态
-        }
-      }
-    }
-  }
-}
-
-//-------------------------------------------------------------------------------------------------------------------
-// 函数简介     UART5 数据处理函数
-// 备注信息     rx_buf[1]=Data0(状态), rx_buf[2]=偏移高8位, rx_buf[3]=偏移低8位
-//-------------------------------------------------------------------------------------------------------------------
-void uart5_process_data(void)
-{
-  static uint32 last_request_time = 0;
-
-  // 每10ms发送一次查询命令 0x57 0x01，请求灰度传感器返回当前偏移量。
-  if(get_system_time_ms() - last_request_time >= 10)
-  {
-    uart_write_byte(UART_5, 0x57);
-    uart_write_byte(UART_5, 0x01);
-    last_request_time = get_system_time_ms();
-  }
-
-  if(uart5_rx.frame_ready == 1)
-  {
-    // 第3、4字节为偏移绝对值（高字节在前）；第2字节bit5表示方向：0为负，1为正。
-    grayscale_status = uart5_rx.rx_buf[1];
-    grayscale_offset = (int16)((uart5_rx.rx_buf[2] << 8) | uart5_rx.rx_buf[3]);
-    if((grayscale_status & 0x20) == 0)
-      grayscale_offset = -grayscale_offset;
-
-    uart5_rx.frame_ready = 0;
-  }
 }
 
 //====================================================================================================================
@@ -650,7 +519,6 @@ void uart6_process_data(void)
     {
       last_state = state;           // 保存上一次运行状态
       state = uart6_rx.rx_buf[0];   // 第2字节为运行状态
-      circle = uart6_rx.rx_buf[1];  // 第3字节为目标圈数
     }
     uart6_rx.frame_ready = 0;
   }
@@ -668,8 +536,6 @@ void uart_config_init(void)
   uart0_init_debug();  
   uart1_init_camera();  
   uart3_init_motor();
-  uart4_init_jy901();
-  uart5_init_grayscale();  // UART5灰度传感器串口通信
   uart6_init_screen();
 }
 

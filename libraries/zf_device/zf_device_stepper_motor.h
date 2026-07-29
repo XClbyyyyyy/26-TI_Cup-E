@@ -34,8 +34,10 @@ typedef enum {
 //-------------------------------------------------------------------------------------------------------------------
 // 步进电机地址定义
 //-------------------------------------------------------------------------------------------------------------------
-#define STEPPER_ADDR_1    (0x01)  // 电机1地址
-#define STEPPER_ADDR_2    (0x02)  // 电机2地址
+#define STEPPER_ADDR_X    (0x01)  // 电机1地址
+#define STEPPER_ADDR_Y    (0x02)  // 电机2地址
+#define STEPPER_ADDR_Z    (0x03)  // 电机3地址
+#define STEPPER_ADDR_T    (0x04)  // 电机4地址
 
 //-------------------------------------------------------------------------------------------------------------------
 // 步进电机方向定义
@@ -59,6 +61,8 @@ void stepper_enable(uint8 addr, uint8 state);               // 使能控制: sta
 void stepper_reset(uint8 addr);                             // 复位电机
 void stepper_stop(uint8 addr);                              // 急停
 void stepper_set_pos_zero(uint8 addr);                      // 设置当前位置为零点
+void stepper_origin_set_o(uint8 addr, uint8 store_flag);    // 立即设置单圈回零零点位置
+void stepper_origin_trigger_return(uint8 addr, uint8 origin_mode);  // 立即触发回零
 void Emm_V5_Read_Sys_Params(uint8_t addr, SysParams_t s);
 
 // 运动控制函数
