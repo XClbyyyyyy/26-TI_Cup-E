@@ -54,29 +54,29 @@ typedef struct
 
 //---------------------------------------------------------------------------------------------------------------
 // 摄像头碎片计划数据结构定义
-// 相机分辨率为 1280×1080，镜头中心为 (640, 540) 像素。
-// X、Y 轴电机每转一圈移动 40 mm；当前未完成像素到毫米标定，不能据此换算电机脉冲。
+// 摄像头发送的源碎片与目标碎片坐标均为相对机械原点的距离，单位：mm。
+// X、Y 轴电机每转一圈移动 40 mm，3200 脉冲对应一圈，即 80 脉冲/mm。
 //---------------------------------------------------------------------------------------------------------------
 typedef struct
 {
   uint8 piece_id;         // 碎片编号，取值范围：0-3。
-  float source_x_px;      // 源碎片面积质心 X 坐标，单位：像素。
-  float source_y_px;      // 源碎片面积质心 Y 坐标，单位：像素。
-  float target_x_px;      // 目标碎片面积质心 X 坐标，单位：像素。
-  float target_y_px;      // 目标碎片面积质心 Y 坐标，单位：像素。
-  float take_move_x_px;   // 从镜头中心移动到源碎片的 X 像素偏移，右侧为正。
-  float take_move_y_px;   // 从镜头中心移动到源碎片的 Y 像素偏移，下侧为正。
-  float put_move_x_px;    // 从纸张中心移动到目标碎片的 X 像素偏移，右侧为正。
-  float put_move_y_px;    // 从纸张中心移动到目标碎片的 Y 像素偏移，下侧为正。
-  uint32 take_move_x_pulse; // 从纸张中心移动到源碎片所需的 X 轴脉冲数。
-  uint32 take_move_y_pulse; // 从纸张中心移动到源碎片所需的 Y 轴脉冲数。
-  uint32 put_move_x_pulse;  // 从纸张中心移动到目标碎片所需的 X 轴脉冲数。
-  uint32 put_move_y_pulse;  // 从纸张中心移动到目标碎片所需的 Y 轴脉冲数。
+  float source_x_mm;      // 源碎片面积质心相对机械原点的 X 坐标，单位：mm。
+  float source_y_mm;      // 源碎片面积质心相对机械原点的 Y 坐标，单位：mm。
+  float target_x_mm;      // 目标碎片面积质心相对机械原点的 X 坐标，单位：mm。
+  float target_y_mm;      // 目标碎片面积质心相对机械原点的 Y 坐标，单位：mm。
+  float take_move_x_mm;   // 从原点或上一块目标位置移动到源碎片的 X 位移，单位：mm。
+  float take_move_y_mm;   // 从原点或上一块目标位置移动到源碎片的 Y 位移，单位：mm。
+  float put_move_x_mm;    // 从源碎片移动到当前目标位置的 X 位移，单位：mm。
+  float put_move_y_mm;    // 从源碎片移动到当前目标位置的 Y 位移，单位：mm。
+  uint32 take_move_x_pulse; // 从原点或上一块目标位置移动到源碎片所需的 X 轴脉冲数。
+  uint32 take_move_y_pulse; // 从原点或上一块目标位置移动到源碎片所需的 Y 轴脉冲数。
+  uint32 put_move_x_pulse;  // 从源碎片移动到当前目标位置所需的 X 轴脉冲数。
+  uint32 put_move_y_pulse;  // 从源碎片移动到当前目标位置所需的 Y 轴脉冲数。
   float rotation_deg;     // 从源姿态转到目标姿态的角度，单位：度。
-  uint8 Dir_x;            // 源碎片相对镜头 X 中心的方向，0=中心左侧或中心，1=中心右侧。
-  uint8 Dir_y;            // 源碎片相对镜头 Y 中心的方向，0=中心上侧或中心，1=中心下侧。
-  uint8 put_dir_x;        // 目标碎片相对纸张 X 中心的方向，0=中心左侧或中心，1=中心右侧。
-  uint8 put_dir_y;        // 目标碎片相对纸张 Y 中心的方向，0=中心上侧或中心，1=中心下侧。
+  uint8 Dir_x;            // 移动到源碎片的 X 轴方向，0=负方向，1=正方向。
+  uint8 Dir_y;            // 移动到源碎片的 Y 轴方向，0=负方向，1=正方向。
+  uint8 put_dir_x;        // 从源碎片移动到目标位置的 X 轴方向，0=负方向，1=正方向。
+  uint8 put_dir_y;        // 从源碎片移动到目标位置的 Y 轴方向，0=负方向，1=正方向。
 } camera_data_struct;
 //-------------------------------------------------------------------------------------------------------------------
 // 外部变量声明
@@ -86,7 +86,7 @@ extern uart_rx_struct uart1_rx;
 extern uart_rx_struct uart3_rx;
 extern uart_rx_struct uart4_rx;
 
-extern camera_data_struct camera_data[4];  // 已完成校验的摄像头计划，按 piece_id 索引。
+extern camera_data_struct camera_data[4];  // 已完成校验的摄像头连续执行计划，按 piece_id 升序排列。
 extern uint32 camera_plan_sequence;         // 已完成校验计划的确认编号。
 extern float camera_rectangle_width_mm;     // 已完成校验计划的严格矩形宽度，单位：mm。
 extern float camera_rectangle_height_mm;    // 已完成校验计划的严格矩形高度，单位：mm。

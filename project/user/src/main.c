@@ -41,6 +41,30 @@
 //PB7无法输出PWM波，暂时不使用此引脚
 volatile uint8 count=0;											//计数器
 
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     根据位置模式的脉冲数和电机轴速度计算最短完成等待时间。
+// 状态机逻辑   无状态；仅用于在下一段运动命令发出前等待当前运动完成。
+//-------------------------------------------------------------------------------------------------------------------
+static uint32 stepper_move_delay_ms(uint32 pulse_count, uint16 speed_rpm)
+{
+  uint64 pulse_frequency;  // 电机在当前转速下的每秒输出脉冲数，单位：pulse/s。
+
+  pulse_frequency = (uint64)3200U * (uint64)speed_rpm;  // 16细分时电机轴每圈为3200脉冲。
+  return (uint32)(((uint64)pulse_count * 60000U + pulse_frequency - 1U) / pulse_frequency);
+}
+
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     计算两轴同时运动完成所需的等待时间。
+// 状态机逻辑   无状态；以脉冲数较大的轴作为本段 X/Y 运动完成条件。
+//-------------------------------------------------------------------------------------------------------------------
+static uint32 stepper_xy_move_delay_ms(uint32 x_pulse_count, uint32 y_pulse_count, uint16 speed_rpm)
+{
+  if(x_pulse_count >= y_pulse_count)
+    return stepper_move_delay_ms(x_pulse_count, speed_rpm);
+
+  return stepper_move_delay_ms(y_pulse_count, speed_rpm);
+}
+
 int main(void)
 {
   clock_init(SYSTEM_CLOCK_80M); 								 // 配置 80 MHz 系统时钟，供后续外设和延时功能使用。
@@ -66,7 +90,7 @@ int main(void)
 		//放物成功后回到原点开始进行第二步，循环直到取完拼图
 		//XY轴电机转一圈4cm
 		//X轴逆时针为正，Z轴逆时针为正，Y左顺时针为正，Y右逆时针为正
-		//X轴从零点运动到纸面中心为12000脉冲，Y轴9000脉冲
+		//连续运动基准为机械原点；纸张中心相对原点的固定坐标已在摄像头数据换算中叠加。
 		if(state == 1 && camera_plan_ready_flag == 1)
 		{
 			if(count < camera_piece_count)
@@ -75,53 +99,52 @@ int main(void)
 				{
 					take_flag = 0;
 					put_flag = 0;
-					count++;																								
-					stepper_origin_trigger_return(STEPPER_ADDR_X,2);				//X轴回零
-					system_delay_ms(5);	
-					stepper_origin_trigger_return(STEPPER_ADDR_Y,2);				//Y轴回零
-					system_delay_ms(5);	
-					stepper_origin_trigger_return(STEPPER_ADDR_Z,0);				//Z轴回零
+					count++;
+					if(count >= camera_piece_count)
+					{
+						stepper_origin_trigger_return(STEPPER_ADDR_X,2);
+						system_delay_ms(5);
+						stepper_origin_trigger_return(STEPPER_ADDR_Y,2);
+						system_delay_ms(5);
+					}
+					stepper_origin_trigger_return(STEPPER_ADDR_Z,0);
 					system_delay_ms(2000);
 				}
 				else if(take_flag == 1 && put_flag == 0)
 				{
-					stepper_origin_trigger_return(STEPPER_ADDR_Z,0);				//Z轴回零
+					stepper_pos_control(STEPPER_ADDR_Z,1,Zspeed,0,800,0);		//Z轴上升
+					system_delay_ms(5);																											
+					stepper_pos_control(STEPPER_ADDR_Y,camera_data[count].put_dir_x,XYspeed,0,camera_data[count].put_move_x_pulse,0);  // 摄像头 X 坐标由 Y 电机执行。
 					system_delay_ms(5);
-					stepper_pos_control(STEPPER_ADDR_X,camera_data[count].put_dir_x,XYspeed,0,camera_data[count].put_move_x_pulse,0);
-					system_delay_ms(5);
-					stepper_pos_control(STEPPER_ADDR_Y,camera_data[count].put_dir_y,XYspeed,0,camera_data[count].put_move_y_pulse,0);
-					system_delay_ms(2000);
-					stepper_pos_control(STEPPER_ADDR_Z,0,Zspeed,0,800,0);		//Z轴运动
-					system_delay_ms(250);
+					stepper_pos_control(STEPPER_ADDR_X,camera_data[count].put_dir_y,XYspeed,0,camera_data[count].put_move_y_pulse,0);  // 摄像头 Y 坐标由 X 电机执行。
+					system_delay_ms(stepper_xy_move_delay_ms(camera_data[count].put_move_x_pulse, camera_data[count].put_move_y_pulse, XYspeed));
+					stepper_pos_control(STEPPER_ADDR_Z,0,Zspeed,0,800,0);		//Z轴下降
+					system_delay_ms(255);																								// Z 轴固定800脉冲，60 RPM时理论250 ms，额外预留5 ms。
 					
 					gpio_set_level(B7, GPIO_LOW);	//电磁铁放
 					put_flag = 1;
 				}
 				else if(take_flag == 0 && put_flag == 0)
 				{
-					stepper_pos_control(STEPPER_ADDR_Y,1,1688,0,9000,0);
+					stepper_pos_control(STEPPER_ADDR_Y,camera_data[count].Dir_x,XYspeed,0,camera_data[count].take_move_x_pulse,0);  // 摄像头 X 坐标由 Y 电机执行。
 					system_delay_ms(5);
-					stepper_pos_control(STEPPER_ADDR_X,0,2250,0,12000,0);
-					system_delay_ms(2000);																//零点→纸张中心
-
-					stepper_pos_control(STEPPER_ADDR_X,camera_data[count].Dir_x,XYspeed,0,camera_data[count].take_move_x_pulse,0);			
-					system_delay_ms(5);
-					stepper_pos_control(STEPPER_ADDR_Y,camera_data[count].Dir_y,XYspeed,0,camera_data[count].take_move_y_pulse,0);		
-					system_delay_ms(5);
+					stepper_pos_control(STEPPER_ADDR_X,camera_data[count].Dir_y,XYspeed,0,camera_data[count].take_move_y_pulse,0);  // 摄像头 Y 坐标由 X 电机执行。
+					system_delay_ms(stepper_xy_move_delay_ms(camera_data[count].take_move_x_pulse, camera_data[count].take_move_y_pulse, XYspeed));
 					stepper_pos_control(STEPPER_ADDR_Z,0,Zspeed,0,800,0);															
-					system_delay_ms(250);																	//纸张中心→碎片中心
+					system_delay_ms(255);																			// Z 轴固定800脉冲，60 RPM时理论250 ms，额外预留5 ms。
 					take_flag = 1;																				
 					gpio_set_level(B7, GPIO_HIGH);	//电磁铁吸
 
-					stepper_pos_control(STEPPER_ADDR_X,1-camera_data[count].Dir_x,XYspeed,0,camera_data[count].take_move_x_pulse,0);			
-					system_delay_ms(5);
-					stepper_pos_control(STEPPER_ADDR_Y,1-camera_data[count].Dir_y,XYspeed,0,camera_data[count].take_move_y_pulse,0);		
-					system_delay_ms(5);																		//碎片中心→纸张中心
 					if(camera_data[count].rotation_deg < 0.0F)
+					{
 						stepper_pos_control(STEPPER_ADDR_T,0,Tspeed,0,(uint16)(-camera_data[count].rotation_deg * 3200.0F / 360.0F + 0.5F),0);	//负角度顺时针旋转。
+						system_delay_ms(5);																												// T 轴与后续取放流程并行，保留命令发送间隔。
+					}
 					else if(camera_data[count].rotation_deg > 0.0F)
+					{
 						stepper_pos_control(STEPPER_ADDR_T,1,Tspeed,0,(uint16)(camera_data[count].rotation_deg * 3200.0F / 360.0F + 0.5F),0);	//正角度逆时针旋转。
-					system_delay_ms(5);
+						system_delay_ms(5);																												// T 轴与后续取放流程并行，保留命令发送间隔。
+					}
 				}
 			} 
 			else

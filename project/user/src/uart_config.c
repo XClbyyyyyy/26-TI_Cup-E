@@ -16,7 +16,7 @@ uart_rx_struct uart1_rx;  // UART1 接收结构体 - 摄像头
 uart_rx_struct uart3_rx;  // UART3 接收结构体 - 步进电机
 uart_rx_struct uart4_rx;  // UART4 接收结构体 - 串口屏
 
-camera_data_struct camera_data[4];          // 已完成校验的摄像头计划，按 piece_id 索引。
+camera_data_struct camera_data[4];          // 已完成校验的摄像头连续执行计划，按 piece_id 升序排列。
 uint32 camera_plan_sequence = 0;             // 已完成校验计划的确认编号。
 float camera_rectangle_width_mm = 0.0F;      // 已完成校验计划的严格矩形宽度，单位：mm。
 float camera_rectangle_height_mm = 0.0F;     // 已完成校验计划的严格矩形高度，单位：mm。
@@ -414,25 +414,25 @@ static uint8 camera_parse_piece(const uint8 *line, uint8 line_length)
   if(camera_skip_comma(line, line_length, &character_index) == 0)
     return 0;
 
-  if(camera_read_float(line, line_length, &character_index, &piece_data.source_x_px) == 0)
+  if(camera_read_float(line, line_length, &character_index, &piece_data.source_x_mm) == 0)
     return 0;
 
   if(camera_skip_comma(line, line_length, &character_index) == 0)
     return 0;
 
-  if(camera_read_float(line, line_length, &character_index, &piece_data.source_y_px) == 0)
+  if(camera_read_float(line, line_length, &character_index, &piece_data.source_y_mm) == 0)
     return 0;
 
   if(camera_skip_comma(line, line_length, &character_index) == 0)
     return 0;
 
-  if(camera_read_float(line, line_length, &character_index, &piece_data.target_x_px) == 0)
+  if(camera_read_float(line, line_length, &character_index, &piece_data.target_x_mm) == 0)
     return 0;
 
   if(camera_skip_comma(line, line_length, &character_index) == 0)
     return 0;
 
-  if(camera_read_float(line, line_length, &character_index, &piece_data.target_y_px) == 0)
+  if(camera_read_float(line, line_length, &character_index, &piece_data.target_y_mm) == 0)
     return 0;
 
   if(camera_skip_comma(line, line_length, &character_index) == 0)
@@ -445,50 +445,10 @@ static uint8 camera_parse_piece(const uint8 *line, uint8 line_length)
     return 0;
 
   piece_data.piece_id = (uint8)piece_id;
-  piece_data.take_move_x_px = piece_data.source_x_px - 640.0F;  // 1280 像素宽画面的镜头中心 X 坐标为 640。
-  piece_data.take_move_y_px = piece_data.source_y_px - 540.0F;  // 1080 像素高画面的镜头中心 Y 坐标为 540。
-  piece_data.put_move_x_px = piece_data.target_x_px - 640.0F;   // 碎片取走并回到纸张中心后，从中心移动到目标位置。
-  piece_data.put_move_y_px = piece_data.target_y_px - 540.0F;
-
-  if(piece_data.take_move_x_px < 0.0F)
-    piece_data.take_move_x_pulse = (uint32)(-piece_data.take_move_x_px * 16800.0F / 685.0F + 0.5F);  // 685 像素对应 210 mm，X/Y 均为 80 脉冲/mm。
-  else
-    piece_data.take_move_x_pulse = (uint32)(piece_data.take_move_x_px * 16800.0F / 685.0F + 0.5F);
-
-  if(piece_data.take_move_y_px < 0.0F)
-    piece_data.take_move_y_pulse = (uint32)(-piece_data.take_move_y_px * 16800.0F / 685.0F + 0.5F);
-  else
-    piece_data.take_move_y_pulse = (uint32)(piece_data.take_move_y_px * 16800.0F / 685.0F + 0.5F);
-
-  if(piece_data.put_move_x_px < 0.0F)
-    piece_data.put_move_x_pulse = (uint32)(-piece_data.put_move_x_px * 16800.0F / 685.0F + 0.5F);
-  else
-    piece_data.put_move_x_pulse = (uint32)(piece_data.put_move_x_px * 16800.0F / 685.0F + 0.5F);
-
-  if(piece_data.put_move_y_px < 0.0F)
-    piece_data.put_move_y_pulse = (uint32)(-piece_data.put_move_y_px * 16800.0F / 685.0F + 0.5F);
-  else
-    piece_data.put_move_y_pulse = (uint32)(piece_data.put_move_y_px * 16800.0F / 685.0F + 0.5F);
-
-  if(piece_data.take_move_x_px > 0.0F)
-    piece_data.Dir_x = 1;
-  else
-    piece_data.Dir_x = 0;
-
-  if(piece_data.take_move_y_px > 0.0F)
-    piece_data.Dir_y = 1;
-  else
-    piece_data.Dir_y = 0;
-
-  if(piece_data.put_move_x_px > 0.0F)
-    piece_data.put_dir_x = 1;
-  else
-    piece_data.put_dir_x = 0;
-
-  if(piece_data.put_move_y_px > 0.0F)
-    piece_data.put_dir_y = 1;
-  else
-    piece_data.put_dir_y = 0;
+  piece_data.take_move_x_mm = piece_data.source_x_mm;  // 第一块默认从机械原点出发，完整计划提交后会更新为连续差分位移。
+  piece_data.take_move_y_mm = piece_data.source_y_mm;
+  piece_data.put_move_x_mm = piece_data.target_x_mm - piece_data.source_x_mm;
+  piece_data.put_move_y_mm = piece_data.target_y_mm - piece_data.source_y_mm;
 
   if(camera_piece_received_flag[piece_id] == 0)
     camera_pending_piece_count++;
@@ -499,6 +459,104 @@ static uint8 camera_parse_piece(const uint8 *line, uint8 line_length)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
+// 函数简介     将相对机械原点的距离换算为带方向的电机脉冲值。
+// 参数说明     distance_mm  相对机械原点或上一位置的距离，单位：mm。
+// 返回参数     带方向的脉冲值，X/Y 轴均为 80 脉冲/mm。
+//-------------------------------------------------------------------------------------------------------------------
+static int32 camera_mm_to_pulse(float distance_mm)
+{
+  if(distance_mm < 0.0F)
+    return -(int32)(-distance_mm * 80.0F + 0.5F);
+
+  return (int32)(distance_mm * 80.0F + 0.5F);
+}
+
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     按 piece_id 升序生成连续 XY 运动数据。
+// 状态机逻辑     第 0 块从原点移动到源碎片；后续碎片从上一块目标位置移动到当前源碎片。
+//-------------------------------------------------------------------------------------------------------------------
+static void camera_build_continuous_motion_data(uint8 piece_count)
+{
+  uint8 piece_index = 0;             // 当前按执行顺序处理的碎片下标。
+  float previous_target_x_mm = 0.0F; // 上一块目标位置相对 X 原点的距离，单位：mm。
+  float previous_target_y_mm = 0.0F; // 上一块目标位置相对 Y 原点的距离，单位：mm。
+  int32 previous_target_x_pulse = 0; // 上一块目标位置相对 X 原点的脉冲坐标。
+  int32 previous_target_y_pulse = 0; // 上一块目标位置相对 Y 原点的脉冲坐标。
+  int32 source_x_pulse = 0;          // 当前源碎片相对 X 原点的脉冲坐标。
+  int32 source_y_pulse = 0;          // 当前源碎片相对 Y 原点的脉冲坐标。
+  int32 target_x_pulse = 0;          // 当前目标碎片相对 X 原点的脉冲坐标。
+  int32 target_y_pulse = 0;          // 当前目标碎片相对 Y 原点的脉冲坐标。
+  int32 move_x_pulse = 0;            // 当前待执行 X 轴带方向脉冲值。
+  int32 move_y_pulse = 0;            // 当前待执行 Y 轴带方向脉冲值。
+
+  for(piece_index = 0; piece_index < piece_count; piece_index++)
+  {
+    source_x_pulse = camera_mm_to_pulse(camera_data[piece_index].source_x_mm);
+    source_y_pulse = camera_mm_to_pulse(camera_data[piece_index].source_y_mm);
+    target_x_pulse = camera_mm_to_pulse(camera_data[piece_index].target_x_mm);
+    target_y_pulse = camera_mm_to_pulse(camera_data[piece_index].target_y_mm);
+
+    camera_data[piece_index].take_move_x_mm = camera_data[piece_index].source_x_mm - previous_target_x_mm;
+    camera_data[piece_index].take_move_y_mm = camera_data[piece_index].source_y_mm - previous_target_y_mm;
+    camera_data[piece_index].put_move_x_mm = camera_data[piece_index].target_x_mm - camera_data[piece_index].source_x_mm;
+    camera_data[piece_index].put_move_y_mm = camera_data[piece_index].target_y_mm - camera_data[piece_index].source_y_mm;
+
+    move_x_pulse = source_x_pulse - previous_target_x_pulse;
+    if(move_x_pulse < 0)
+    {
+      camera_data[piece_index].Dir_x = 0;
+      camera_data[piece_index].take_move_x_pulse = (uint32)(-move_x_pulse);
+    }
+    else
+    {
+      camera_data[piece_index].Dir_x = 1;
+      camera_data[piece_index].take_move_x_pulse = (uint32)move_x_pulse;
+    }
+
+    move_y_pulse = source_y_pulse - previous_target_y_pulse;
+    if(move_y_pulse < 0)
+    {
+      camera_data[piece_index].Dir_y = 0;
+      camera_data[piece_index].take_move_y_pulse = (uint32)(-move_y_pulse);
+    }
+    else
+    {
+      camera_data[piece_index].Dir_y = 1;
+      camera_data[piece_index].take_move_y_pulse = (uint32)move_y_pulse;
+    }
+
+    move_x_pulse = target_x_pulse - source_x_pulse;
+    if(move_x_pulse < 0)
+    {
+      camera_data[piece_index].put_dir_x = 0;
+      camera_data[piece_index].put_move_x_pulse = (uint32)(-move_x_pulse);
+    }
+    else
+    {
+      camera_data[piece_index].put_dir_x = 1;
+      camera_data[piece_index].put_move_x_pulse = (uint32)move_x_pulse;
+    }
+
+    move_y_pulse = target_y_pulse - source_y_pulse;
+    if(move_y_pulse < 0)
+    {
+      camera_data[piece_index].put_dir_y = 0;
+      camera_data[piece_index].put_move_y_pulse = (uint32)(-move_y_pulse);
+    }
+    else
+    {
+      camera_data[piece_index].put_dir_y = 1;
+      camera_data[piece_index].put_move_y_pulse = (uint32)move_y_pulse;
+    }
+
+    previous_target_x_pulse = target_x_pulse;
+    previous_target_y_pulse = target_y_pulse;
+    previous_target_x_mm = camera_data[piece_index].target_x_mm;
+    previous_target_y_mm = camera_data[piece_index].target_y_mm;
+  }
+}
+
+//-------------------------------------------------------------------------------------------------------------------
 // 函数简介     解析 DONE 行并提交已完成的同编号计划，随后回发 ACK。
 // 状态机逻辑     状态1收到有效 DONE 后提交计划并回到状态0，等待下一条 PLAN。
 // 返回参数     1=DONE 有效并已提交，0=DONE 格式、编号或状态错误。
@@ -506,7 +564,8 @@ static uint8 camera_parse_piece(const uint8 *line, uint8 line_length)
 static uint8 camera_parse_done(const uint8 *line, uint8 line_length)
 {
   uint8 character_index = 5;  // 跳过 "DONE," 后的当前字符下标。
-  uint8 piece_index = 0;      // 提交暂存碎片计划时使用的数组下标。
+  uint8 piece_index = 0;      // 遍历按 piece_id 暂存的碎片计划时使用的数组下标。
+  uint8 execution_index = 0;  // 按 piece_id 升序写入连续执行计划时使用的数组下标。
   uint32 sequence = 0;        // 本行解析得到的计划确认编号。
 
   if(camera_read_uint32(line, line_length, &character_index, &sequence) == 0)
@@ -519,12 +578,20 @@ static uint8 camera_parse_done(const uint8 *line, uint8 line_length)
     return 0;
 
   for(piece_index = 0; piece_index < 4; piece_index++)
-    camera_data[piece_index] = camera_plan_buffer[piece_index];
+  {
+    if(camera_piece_received_flag[piece_index] == 1)
+    {
+      camera_data[execution_index] = camera_plan_buffer[piece_index];
+      execution_index++;
+    }
+  }
+
+  camera_build_continuous_motion_data(execution_index);
 
   camera_plan_sequence = camera_pending_sequence;
   camera_rectangle_width_mm = camera_pending_rectangle_width_mm;
   camera_rectangle_height_mm = camera_pending_rectangle_height_mm;
-  camera_piece_count = camera_pending_piece_count;
+  camera_piece_count = execution_index;
   camera_plan_ready_flag = 1;  // 已收到完整批次，可由机械臂执行层读取。
   camera_pending_active_flag = 0;  // 状态0：当前批次已经提交，等待下一条 PLAN。
   uart_printf(UART_1, "ACK,%u\n", camera_plan_sequence);
