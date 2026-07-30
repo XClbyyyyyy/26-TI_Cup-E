@@ -135,22 +135,22 @@ void UART3_IRQHandler (void)
     DL_UART_clearInterruptStatus(UART3, UART3->CPU_INT.RIS);
 }
 
-void UART6_IRQHandler (void)
+void UART4_IRQHandler (void)
 {
-	switch(DL_UART_getPendingInterrupt(UART6))
+	switch(DL_UART_getPendingInterrupt(UART4))
 	{
 		case DL_UART_IIDX_TX:
         {
-            uart_callback_list[6 - 1](UART_INTERRUPT_STATE_TX, uart_callback_ptr_list[6 - 1]);
+            uart_callback_list[4 - 1](UART_INTERRUPT_STATE_TX, uart_callback_ptr_list[4 - 1]);
         }break;
 		case DL_UART_IIDX_RX:
         {
-            uart_callback_list[6 - 1](UART_INTERRUPT_STATE_RX, uart_callback_ptr_list[6 - 1]);
+            uart_callback_list[4 - 1](UART_INTERRUPT_STATE_RX, uart_callback_ptr_list[4 - 1]);
         }break;
 
 		default:    break;
 	}
-    DL_UART_clearInterruptStatus(UART6, UART6->CPU_INT.RIS);
+    DL_UART_clearInterruptStatus(UART4, UART4->CPU_INT.RIS);
 }
 
 void UART7_IRQHandler (void)

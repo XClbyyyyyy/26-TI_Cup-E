@@ -19,7 +19,8 @@
 //   POS,mode,seq,x,y,distance_mm\n  ASCII协议
 //   发"1\n"切换模式1(中心点), 发"2\n"切换模式2(圆周点)
 // UART3: 步进电机(115200, 优先级1, TX=A14/RX=A13)
-// UART6: 串口屏(230400, 优先级4, TX=B22/RX=B21)
+// UART4: 串口屏(230400, 优先级4, TX=B17/RX=B18)，帧格式为 0x5B-类型-数值-0x5D。
+//   类型1：数值直接设置 state；类型2、3：数值作为 int8 增量调整 XYspeed、Tspeed。
 
 //-------------------------------------------------------------------------------------------------------------------
 // 引脚定义
@@ -39,9 +40,6 @@
 #define UART5_TX_PIN          UART5_TX_A1
 #define UART5_RX_PIN          UART5_RX_A0
 
-#define UART6_TX_PIN          UART6_TX_B22
-#define UART6_RX_PIN          UART6_RX_B21
-
 //-------------------------------------------------------------------------------------------------------------------
 // 串口接收结构体定义
 //-------------------------------------------------------------------------------------------------------------------
@@ -54,26 +52,52 @@ typedef struct
   uint8 frame_ready; // 帧接收完成标志: 1=一帧数据接收完成, 0=未完成
 } uart_rx_struct;
 
+//---------------------------------------------------------------------------------------------------------------
+// 摄像头碎片计划数据结构定义
+// 相机分辨率为 1280×1080，镜头中心为 (640, 540) 像素。
+// X、Y 轴电机每转一圈移动 40 mm；当前未完成像素到毫米标定，不能据此换算电机脉冲。
+//---------------------------------------------------------------------------------------------------------------
+typedef struct
+{
+  uint8 piece_id;         // 碎片编号，取值范围：0-3。
+  float source_x_px;      // 源碎片面积质心 X 坐标，单位：像素。
+  float source_y_px;      // 源碎片面积质心 Y 坐标，单位：像素。
+  float target_x_px;      // 目标碎片面积质心 X 坐标，单位：像素。
+  float target_y_px;      // 目标碎片面积质心 Y 坐标，单位：像素。
+  float take_move_x_px;   // 从镜头中心移动到源碎片的 X 像素偏移，右侧为正。
+  float take_move_y_px;   // 从镜头中心移动到源碎片的 Y 像素偏移，下侧为正。
+  float put_move_x_px;    // 从纸张中心移动到目标碎片的 X 像素偏移，右侧为正。
+  float put_move_y_px;    // 从纸张中心移动到目标碎片的 Y 像素偏移，下侧为正。
+  uint32 take_move_x_pulse; // 从纸张中心移动到源碎片所需的 X 轴脉冲数。
+  uint32 take_move_y_pulse; // 从纸张中心移动到源碎片所需的 Y 轴脉冲数。
+  uint32 put_move_x_pulse;  // 从纸张中心移动到目标碎片所需的 X 轴脉冲数。
+  uint32 put_move_y_pulse;  // 从纸张中心移动到目标碎片所需的 Y 轴脉冲数。
+  float rotation_deg;     // 从源姿态转到目标姿态的角度，单位：度。
+  uint8 Dir_x;            // 源碎片相对镜头 X 中心的方向，0=中心左侧或中心，1=中心右侧。
+  uint8 Dir_y;            // 源碎片相对镜头 Y 中心的方向，0=中心上侧或中心，1=中心下侧。
+  uint8 put_dir_x;        // 目标碎片相对纸张 X 中心的方向，0=中心左侧或中心，1=中心右侧。
+  uint8 put_dir_y;        // 目标碎片相对纸张 Y 中心的方向，0=中心上侧或中心，1=中心下侧。
+} camera_data_struct;
 //-------------------------------------------------------------------------------------------------------------------
 // 外部变量声明
 //-------------------------------------------------------------------------------------------------------------------
 extern uart_rx_struct uart0_rx;
 extern uart_rx_struct uart1_rx;
 extern uart_rx_struct uart3_rx;
-extern uart_rx_struct uart6_rx;
-extern float param_data[8];        // 参数调试数据: 通道0-7
+extern uart_rx_struct uart4_rx;
 
-extern uint16 camera_target_x;     // 摄像头目标X坐标
-extern uint16 camera_target_y;     // 摄像头目标Y坐标
-extern int16 camera_move_x;        // 摄像头X偏移
-extern int16 camera_move_y;        // 摄像头Y偏移
-extern uint8 camera_mode;          // 摄像头模式: 1=中心点, 2=圆周点
-extern uint16 camera_sequence;     // 帧序号(递增)
-extern int16 camera_distance;      // 测距结果(mm), -1=无效
-extern uint8 camera_target_valid;  // 摄像头有效靶标标志: 0=无靶, 1=有靶
+extern camera_data_struct camera_data[4];  // 已完成校验的摄像头计划，按 piece_id 索引。
+extern uint32 camera_plan_sequence;         // 已完成校验计划的确认编号。
+extern float camera_rectangle_width_mm;     // 已完成校验计划的严格矩形宽度，单位：mm。
+extern float camera_rectangle_height_mm;    // 已完成校验计划的严格矩形高度，单位：mm。
+extern uint8 camera_piece_count;            // 已完成校验计划中的碎片数量，取值范围：1-4。
+extern uint8 camera_plan_ready_flag;        // 已完成校验计划就绪标志，0=无新计划，1=有新计划。
+extern uint8 direction;                    // 无线串口 I1 设置的 Y 轴方向：0=负向，1=正向。
 
-extern uint8 state;                // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他
+extern volatile uint8 state;       // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他；可由 UART4 中断更新。
 extern uint8 last_state;           // 上一次运行状态
+extern uint16 XYspeed;             // X、Y 轴速度，单位：RPM；UART4 可按有符号增量调整。
+extern uint16 Tspeed;              // T 轴电机轴速度，单位：RPM；UART4 可按有符号增量调整。
 //-------------------------------------------------------------------------------------------------------------------
 // 函数声明
 //-------------------------------------------------------------------------------------------------------------------
@@ -86,18 +110,16 @@ void uart0_process_data(void);
 void uart1_init_camera(void);
 void uart1_rx_callback(uint32 state, void *ptr);
 void uart1_process_data(void);
-void uart1_clear_frame(void);
 
 void uart3_init_motor(void);
 void uart3_rx_callback(uint32 state, void *ptr);
 void uart3_process_data(void);
 
-void uart4_rx_callback(uint32 state, void *ptr);
 void uart5_rx_callback(uint32 state, void *ptr);
 
-void uart6_init_screen(void);
-void uart6_rx_callback(uint32 state, void *ptr);
-void uart6_process_data(void);
+void uart4_init_screen(void);
+void uart4_rx_callback(uint32 interrupt_state, void *ptr);
+void uart4_process_data(void);
 
 void uart_printf(uart_index_enum uart_index, const char *format, ...);
 

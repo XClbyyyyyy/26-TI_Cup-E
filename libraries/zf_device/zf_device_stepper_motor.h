@@ -10,46 +10,19 @@
 
 #include "zf_common_typedef.h"
 
-typedef enum {
-	S_VBUS  = 5,	// 读取总线电压
-	S_CBUS  = 6,	// 读取总线电流
-	S_CPHA  = 7,	// 读取相电流
-	S_ENCO  = 8,	// 读取编码器原始值
-	S_CLKC  = 9,	// 读取实时脉冲数
-	S_ENCL  = 10,	// 读取经过线性化校准后的编码器值
-	S_CLKI  = 11,	// 读取输入脉冲数
-	S_TPOS  = 12,	// 读取电机目标位置
-	S_SPOS  = 13,	// 读取电机实时设定的目标位置
-	S_VEL   = 14,	// 读取电机实时转速
-	S_CPOS  = 15,	// 读取电机实时位置
-	S_PERR  = 16,	// 读取电机位置误差
-	S_VBAT  = 17,	// 读取多圈编码器电池电压（Y42）
-	S_TEMP  = 18,	// 读取电机实时温度（Y42）
-	S_FLAG  = 19,	// 读取电机状态标志位
-	S_OFLAG = 20, // 读取回零状态标志位
-	S_OAF   = 21,	// 读取电机状态标志位 + 回零状态标志位（Y42）
-	S_PIN   = 22,	// 读取引脚状态（Y42）
-}SysParams_t;
-
 //-------------------------------------------------------------------------------------------------------------------
 // 步进电机地址定义
 //-------------------------------------------------------------------------------------------------------------------
-#define STEPPER_ADDR_X    (0x01)  // 电机1地址
-#define STEPPER_ADDR_Y    (0x02)  // 电机2地址
-#define STEPPER_ADDR_Z    (0x03)  // 电机3地址
-#define STEPPER_ADDR_T    (0x04)  // 电机4地址
+#define STEPPER_ADDR_X    (0x01)  // X轴电机地址。
+#define STEPPER_ADDR_Y    (0x02)  // Y轴电机地址。
+#define STEPPER_ADDR_Z    (0x03)  // Z轴电机地址。
+#define STEPPER_ADDR_T    (0x04)  // T轴电机地址。
 
 //-------------------------------------------------------------------------------------------------------------------
 // 步进电机方向定义
 //-------------------------------------------------------------------------------------------------------------------
 #define STEPPER_DIR_CW    (0x00)  // 顺时针方向
 #define STEPPER_DIR_CCW   (0x01)  // 逆时针方向
-
-//-------------------------------------------------------------------------------------------------------------------
-// 步进电机运动模式定义
-//-------------------------------------------------------------------------------------------------------------------
-#define STEPPER_RA_ABS    (0x00)  // 绝对位置模式
-#define STEPPER_RA_REL    (0x01)  // 相对位置模式
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数声明
@@ -61,13 +34,13 @@ void stepper_enable(uint8 addr, uint8 state);               // 使能控制: sta
 void stepper_reset(uint8 addr);                             // 复位电机
 void stepper_stop(uint8 addr);                              // 急停
 void stepper_set_pos_zero(uint8 addr);                      // 设置当前位置为零点
-void stepper_origin_set_o(uint8 addr, uint8 store_flag);    // 立即设置单圈回零零点位置
-void stepper_origin_trigger_return(uint8 addr, uint8 origin_mode);  // 立即触发回零
-void Emm_V5_Read_Sys_Params(uint8_t addr, SysParams_t s);
+void stepper_origin_trigger_return(uint8 addr, uint8 origin_mode);  // 立即触发回零。
 
 // 运动控制函数
 void stepper_vel_control(uint8 addr, uint8 dir, uint16 vel, uint8 acc);                    // 速度模式
 void stepper_pos_control(uint8 addr, uint8 dir, uint16 vel, uint8 acc, uint32 clk, uint8 raF);  // 位置模式
+
+
 
 //-------------------------------------------------------------------------------------------------------------------
 // 电机非阻塞命令队列函数
