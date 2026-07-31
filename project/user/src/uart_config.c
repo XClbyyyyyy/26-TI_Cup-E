@@ -37,11 +37,12 @@ static float camera_pending_rectangle_width_mm;   // 当前暂存批次的严格
 static float camera_pending_rectangle_height_mm;  // 当前暂存批次的严格矩形高度，单位：mm。
 static uint8 camera_pending_piece_count;          // 当前暂存批次已经接收的不同碎片数量，取值范围：0-4。
 static uint8 camera_pending_active_flag;           // 当前暂存批次有效标志，0=无有效 PLAN，1=已收到有效 PLAN。
+static volatile uint8 camera_receive_enabled_flag; // 摄像头计划接收窗口标志，0=丢弃 UART1 数据，1=允许接收一份新计划。
 
 volatile uint8 state = 0;   // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他；UART4 中断可修改。
 uint8 last_state=0;         // 上一次运行状态
 uint16 XYspeed = 1200;      // X、Y 轴基础速度，单位：RPM。
-uint16 Zspeed = 1200;       // Z 轴基础速度，单位：RPM。
+uint16 Zspeed = 600;        // Z 轴基础速度，单位：RPM。
 uint16 Tspeed = 75;        // T 轴电机轴基础速度，单位：RPM。
 uint8 direction = 0;        // 无线串口 I1 设置的 Y 轴方向：0=负向，1=正向。
 extern uint8 count;         // 计数器
@@ -462,15 +463,29 @@ static uint8 camera_parse_piece(const uint8 *line, uint8 line_length)
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     将相对机械原点的距离换算为带方向的电机脉冲值。
-// 参数说明     distance_mm  相对机械原点或上一位置的距离，单位：mm。
-// 返回参数     带方向的脉冲值，X/Y 轴均为 80 脉冲/mm。
+// 参数说明     distance_mm   相对机械原点或上一位置的距离，单位：mm。
+// 参数说明     pulse_per_mm  当前机械坐标轴的脉冲比例，单位：pulse/mm。
+// 返回参数     带方向的脉冲值。
 //-------------------------------------------------------------------------------------------------------------------
-static int32 camera_mm_to_pulse(float distance_mm)
+static int32 camera_mm_to_pulse(float distance_mm, float pulse_per_mm)
 {
   if(distance_mm < 0.0F)
-    return -(int32)(-distance_mm * 80.0F + 0.5F);
+    return -(int32)(-distance_mm * pulse_per_mm + 0.5F);
 
-  return (int32)(distance_mm * 80.0F + 0.5F);
+  return (int32)(distance_mm * pulse_per_mm + 0.5F);
+}
+
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     按坐标到原点的距离线性减少机械移动距离。
+// 状态机逻辑   无状态；原点处按参数减少移动距离，坐标轴远端处不补偿。
+// 参数说明     coordinate_mm      待修正的摄像头机械坐标，单位：mm。
+// 参数说明     coordinate_max_mm  当前坐标轴从原点到远端的长度，单位：mm。
+// 参数说明     compensation_mm    当前坐标轴原点处减少的移动距离，单位：mm。
+// 返回参数     修正后的机械坐标，单位：mm。
+//-------------------------------------------------------------------------------------------------------------------
+static float camera_linear_compensate_mm(float coordinate_mm, float coordinate_max_mm, float compensation_mm)
+{
+  return coordinate_mm - compensation_mm * (1.0F - coordinate_mm / coordinate_max_mm);
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -488,16 +503,18 @@ static void camera_build_continuous_motion_data(uint8 piece_count)
   int32 target_y_pulse = 0;          // 当前目标碎片相对 Y 原点的脉冲坐标。
   int32 move_x_pulse = 0;            // 当前待执行 X 轴带方向脉冲值。
   int32 move_y_pulse = 0;            // 当前待执行 Y 轴带方向脉冲值。
+  float x_pulse_per_mm = 91.428571F; // X 坐标对应 A4 短边：19200 脉冲/210 mm。
+  float y_pulse_per_mm = 79.461279F; // Y 坐标对应 A4 长边：23600 脉冲/297 mm。
 
-  previous_target_x_pulse = camera_mm_to_pulse(12.0F);  // 装置零点位于摄像头 X=+12 mm 处，首块取料需减去该偏移。
-  previous_target_y_pulse = camera_mm_to_pulse(5.0F);   // 装置零点位于摄像头 Y=+5 mm 处，首块取料需减去该偏移。
+  previous_target_x_pulse = 0; // 第一块取料从机械原点开始计算。
+  previous_target_y_pulse = 0; // 第一块取料从机械原点开始计算。
 
   for(piece_index = 0; piece_index < piece_count; piece_index++)
   {
-    source_x_pulse = camera_mm_to_pulse(camera_data[piece_index].source_x_mm);
-    source_y_pulse = camera_mm_to_pulse(camera_data[piece_index].source_y_mm);
-    target_x_pulse = camera_mm_to_pulse(camera_data[piece_index].target_x_mm);
-    target_y_pulse = camera_mm_to_pulse(camera_data[piece_index].target_y_mm);
+    source_x_pulse = camera_mm_to_pulse(camera_linear_compensate_mm(camera_data[piece_index].source_x_mm, 210.0F, 12.0F), x_pulse_per_mm);
+    source_y_pulse = camera_mm_to_pulse(camera_linear_compensate_mm(camera_data[piece_index].source_y_mm, 148.5F, 3.0F), y_pulse_per_mm);
+    target_x_pulse = camera_mm_to_pulse(camera_linear_compensate_mm(camera_data[piece_index].target_x_mm, 210.0F, 12.0F), x_pulse_per_mm);
+    target_y_pulse = camera_mm_to_pulse(camera_linear_compensate_mm(camera_data[piece_index].target_y_mm, 148.5F, 3.0F), y_pulse_per_mm);
 
     move_x_pulse = source_x_pulse - previous_target_x_pulse;
     if(move_x_pulse < 0)
@@ -563,6 +580,7 @@ static uint8 camera_parse_done(const uint8 *line, uint8 line_length)
   uint8 piece_index = 0;      // 遍历按 piece_id 暂存的碎片计划时使用的数组下标。
   uint8 execution_index = 0;  // 按 piece_id 升序写入连续执行计划时使用的数组下标。
   uint32 sequence = 0;        // 本行解析得到的计划确认编号。
+  uint8 plan_commit_flag = 0; // 当前完整计划是否已在接收窗口内成功提交，0=否，1=是。
 
   if(camera_read_uint32(line, line_length, &character_index, &sequence) == 0)
     return 0;
@@ -584,14 +602,27 @@ static uint8 camera_parse_done(const uint8 *line, uint8 line_length)
 
   camera_build_continuous_motion_data(execution_index);
 
-  camera_plan_sequence = camera_pending_sequence;
-  camera_rectangle_width_mm = camera_pending_rectangle_width_mm;
-  camera_rectangle_height_mm = camera_pending_rectangle_height_mm;
-  camera_piece_count = execution_index;
-  camera_plan_ready_flag = 1;  // 已收到完整批次，可由机械臂执行层读取。
-  camera_pending_active_flag = 0;  // 状态0：当前批次已经提交，等待下一条 PLAN。
-  uart_printf(UART_1, "ACK,%u\n", camera_plan_sequence);
-  return 1;
+  __disable_irq();
+  if(camera_receive_enabled_flag == 1)
+  {
+    camera_plan_sequence = camera_pending_sequence;
+    camera_rectangle_width_mm = camera_pending_rectangle_width_mm;
+    camera_rectangle_height_mm = camera_pending_rectangle_height_mm;
+    camera_piece_count = execution_index;
+    camera_plan_ready_flag = 1;      // 已收到完整批次，可由机械臂执行层读取。
+    camera_pending_active_flag = 0;  // 状态0：当前批次已经提交，等待下一条 PLAN。
+    camera_receive_enabled_flag = 0; // 本次计划提交后关闭接收窗口，忽略摄像头后续持续数据。
+    plan_commit_flag = 1;
+  }
+  __enable_irq();
+
+  if(plan_commit_flag == 1)
+  {
+    uart_printf(UART_1, "ACK,%u\n", camera_plan_sequence);
+    return 1;
+  }
+
+  return 0;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -601,6 +632,9 @@ static uint8 camera_parse_done(const uint8 *line, uint8 line_length)
 //-------------------------------------------------------------------------------------------------------------------
 static void camera_process_line(const uint8 *line, uint8 line_length)
 {
+  if(camera_receive_enabled_flag == 0)
+    return;
+
   if(camera_line_starts_with(line, line_length, "PLAN,") == 1)
     camera_parse_plan(line, line_length);
   else if(camera_line_starts_with(line, line_length, "PIECE,") == 1)
@@ -611,19 +645,25 @@ static void camera_process_line(const uint8 *line, uint8 line_length)
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     UART1 接收回调函数，将完整 ASCII 行写入队列供主循环解析。
-// 状态机逻辑     状态0累积当前行；状态1丢弃超长行；收到换行符后回到状态0。
+// 状态机逻辑     设备待机时丢弃数据；运行时状态0累积当前行，状态1丢弃超长行，收到换行符后回到状态0。
 //-------------------------------------------------------------------------------------------------------------------
-void uart1_rx_callback(uint32 state, void *ptr)
+void uart1_rx_callback(uint32 interrupt_state, void *ptr)
 {
   uint8 temp_data = 0;  // 当前从 UART1 接收 FIFO 读取的字节。
   uint8 character_index = 0;  // 复制完整行到队列时使用的字符下标。
 
   (void)ptr;
-  if(state != UART_INTERRUPT_STATE_RX)
+  if(interrupt_state != UART_INTERRUPT_STATE_RX)
     return;
 
   while(uart_query_byte(UART_1, &temp_data) == 1)
   {
+    if(state == 0 || camera_receive_enabled_flag == 0)
+    {
+      uart1_rx.state = 0;   // 未打开接收窗口时丢弃正在接收的半行数据。
+      uart1_rx.rx_len = 0;
+      continue;
+    }
 
     uart_write_byte(UART_0, temp_data);  // 将 UART1 原始接收字节实时转发到 UART0，供上位机查看摄像头输出。
 
@@ -671,6 +711,23 @@ void uart1_process_data(void)
   uint8 line_length = 0;  // 本地 ASCII 行副本的有效字节数。
   uint8 character_index = 0;  // 复制行队列数据时使用的字符下标。
 
+  if(state == 0)
+  {
+    __disable_irq();
+    uart1_rx.state = 0;                     // 丢弃状态切换前残留的半行数据。
+    uart1_rx.rx_len = 0;
+    uart1_rx.frame_ready = 0;
+    camera_line_read_index = 0;             // 丢弃待机期间或此前排队的完整行。
+    camera_line_write_index = 0;
+    camera_line_count = 0;
+    __enable_irq();
+
+    camera_pending_active_flag = 0;         // 待机时使未完成的旧计划失效。
+    camera_pending_piece_count = 0;
+    camera_plan_ready_flag = 0;             // 待机时不保留可执行计划。
+    return;
+  }
+
   while(1)
   {
     __disable_irq();
@@ -694,6 +751,37 @@ void uart1_process_data(void)
     camera_process_line(line, line_length);
   }
 }
+
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     为一次新的摄像头状态请求清除旧接收内容并关闭接收窗口。
+// 状态机逻辑   无状态；调用后必须先向摄像头发送状态命令，再调用 camera_enable_plan_receive 开启接收。
+//-------------------------------------------------------------------------------------------------------------------
+void camera_prepare_new_request(void)
+{
+  camera_receive_enabled_flag = 0;  // 先关闭接收，防止清理过程中摄像头新字节重新入队。
+  __disable_irq();
+  uart1_rx.state = 0;               // 丢弃正在接收的半行数据。
+  uart1_rx.rx_len = 0;
+  uart1_rx.frame_ready = 0;
+  camera_line_read_index = 0;       // 丢弃尚未解析的完整行。
+  camera_line_write_index = 0;
+  camera_line_count = 0;
+  __enable_irq();
+
+  camera_pending_active_flag = 0;   // 使未完成的旧计划失效。
+  camera_pending_piece_count = 0;
+  camera_plan_ready_flag = 0;       // 不允许执行上一批已完成的计划。
+}
+
+//-------------------------------------------------------------------------------------------------------------------
+// 函数简介     打开摄像头计划接收窗口，允许接收并提交一份完整计划。
+// 状态机逻辑   无状态；对应计划收到 DONE 并成功提交后会自动关闭接收窗口。
+//-------------------------------------------------------------------------------------------------------------------
+void camera_enable_plan_receive(void)
+{
+  camera_receive_enabled_flag = 1;
+}
+
 //====================================================================================================================
 // UART3 - 步进电机
 //====================================================================================================================
@@ -844,12 +932,18 @@ void uart4_rx_callback(uint32 interrupt_state, void *ptr)
             last_state = state;                 // 保存清零前的运行状态。
             state = 0;                          // 特殊停止帧使装置停止执行。
             camera_plan_ready_flag = 0;         // 特殊停止帧使当前摄像头计划失效。
+            gpio_set_level(B7, GPIO_LOW);       // 复位时立即释放电磁铁，避免等待主循环当前延时结束。
             screen_stop_origin_request_flag = 1; // 通知主循环依次触发 XYZ 轴回零。
           }
           else if(uart4_rx.rx_buf[0] == 1)
           {
             last_state = state;                 // 保存切换前的运行状态。
             state = uart4_rx.rx_buf[1];         // 类型1：在完整帧接收中断内直接设置运行状态。
+            if((state == 1 || state == 2 || state == 3) && state != last_state)
+            {
+              camera_receive_enabled_flag = 0;  // 新状态到达后立即停止接收摄像头持续数据。
+              camera_plan_ready_flag = 0;       // 新摄像头请求开始前使上一批计划失效。
+            }
           }
           else if(uart4_rx.rx_buf[0] >= 0x02 && uart4_rx.rx_buf[0] <= 0x05)
           {

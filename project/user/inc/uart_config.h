@@ -107,6 +107,8 @@ void uart0_process_data(void);
 void uart1_init_camera(void);
 void uart1_rx_callback(uint32 state, void *ptr);
 void uart1_process_data(void);
+void camera_prepare_new_request(void);
+void camera_enable_plan_receive(void);
 
 void uart3_init_motor(void);
 void uart3_rx_callback(uint32 state, void *ptr);
