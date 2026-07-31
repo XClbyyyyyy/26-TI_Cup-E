@@ -23,6 +23,8 @@ float camera_rectangle_height_mm = 0.0F;     // 已完成校验计划的严格�
 uint8 camera_piece_count = 0;                // 已完成校验计划中的碎片数量，取值范围：0-4。
 uint8 camera_plan_ready_flag = 0;            // 已完成校验计划就绪标志，0=无新计划，1=有新计划。
 
+volatile uint8 screen_stop_origin_request_flag = 0; // 串口屏特殊停止帧触发的 XYZ 回零请求标志，0=无请求，1=请求回零。
+
 static uint8 camera_line_queue[8][128];      // UART1 接收行队列，最多缓存 8 行、每行最多 127 个 ASCII 字符。
 static uint8 camera_line_length[8];          // UART1 接收行队列中每一行的有效字节数。
 static volatile uint8 camera_line_write_index; // UART1 接收中断写入行队列使用的下标，取值范围：0-7。
@@ -39,7 +41,7 @@ static uint8 camera_pending_active_flag;           // 当前暂存批次有效�
 volatile uint8 state = 0;   // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他；UART4 中断可修改。
 uint8 last_state=0;         // 上一次运行状态
 uint16 XYspeed = 1200;      // X、Y 轴基础速度，单位：RPM。
-uint16 Tspeed = 300;        // T 轴电机轴基础速度，单位：RPM。
+uint16 Tspeed = 600;        // T 轴电机轴基础速度，单位：RPM。
 uint8 direction = 0;         // 无线串口 I1 设置的 Y 轴方向：0=负向，1=正向。
 extern uint8 count;         // 计数器
 
@@ -183,11 +185,11 @@ void uart0_process_data(void)
 //====================================================================================================================
 
 //-------------------------------------------------------------------------------------------------------------------
-// 函数简介     UART1 初始化，配置为摄像头计划协议的 921600 波特率串口。
+// 函数简介     UART1 初始化，配置为摄像头计划协议的 115200 波特率串口。
 //-------------------------------------------------------------------------------------------------------------------
 void uart1_init_camera(void)
 {
-  uart_init(UART_1, 921600, UART1_TX_PIN, UART1_RX_PIN);
+  uart_init(UART_1, 115200, UART1_TX_PIN, UART1_RX_PIN);
   uart_set_callback(UART_1, uart1_rx_callback, NULL);
   uart_set_interrupt_config(UART_1, UART_INTERRUPT_CONFIG_RX_ENABLE);
   NVIC_SetPriority(UART1_INT_IRQn, 0);
@@ -445,11 +447,6 @@ static uint8 camera_parse_piece(const uint8 *line, uint8 line_length)
     return 0;
 
   piece_data.piece_id = (uint8)piece_id;
-  piece_data.take_move_x_mm = piece_data.source_x_mm;  // 第一块默认从机械原点出发，完整计划提交后会更新为连续差分位移。
-  piece_data.take_move_y_mm = piece_data.source_y_mm;
-  piece_data.put_move_x_mm = piece_data.target_x_mm - piece_data.source_x_mm;
-  piece_data.put_move_y_mm = piece_data.target_y_mm - piece_data.source_y_mm;
-
   if(camera_piece_received_flag[piece_id] == 0)
     camera_pending_piece_count++;
 
@@ -478,8 +475,6 @@ static int32 camera_mm_to_pulse(float distance_mm)
 static void camera_build_continuous_motion_data(uint8 piece_count)
 {
   uint8 piece_index = 0;             // 当前按执行顺序处理的碎片下标。
-  float previous_target_x_mm = 0.0F; // 上一块目标位置相对 X 原点的距离，单位：mm。
-  float previous_target_y_mm = 0.0F; // 上一块目标位置相对 Y 原点的距离，单位：mm。
   int32 previous_target_x_pulse = 0; // 上一块目标位置相对 X 原点的脉冲坐标。
   int32 previous_target_y_pulse = 0; // 上一块目标位置相对 Y 原点的脉冲坐标。
   int32 source_x_pulse = 0;          // 当前源碎片相对 X 原点的脉冲坐标。
@@ -489,17 +484,15 @@ static void camera_build_continuous_motion_data(uint8 piece_count)
   int32 move_x_pulse = 0;            // 当前待执行 X 轴带方向脉冲值。
   int32 move_y_pulse = 0;            // 当前待执行 Y 轴带方向脉冲值。
 
+  previous_target_x_pulse = camera_mm_to_pulse(12.0F);  // 装置零点位于摄像头 X=+12 mm 处，首块取料需减去该偏移。
+  previous_target_y_pulse = camera_mm_to_pulse(5.0F);   // 装置零点位于摄像头 Y=+5 mm 处，首块取料需减去该偏移。
+
   for(piece_index = 0; piece_index < piece_count; piece_index++)
   {
     source_x_pulse = camera_mm_to_pulse(camera_data[piece_index].source_x_mm);
     source_y_pulse = camera_mm_to_pulse(camera_data[piece_index].source_y_mm);
     target_x_pulse = camera_mm_to_pulse(camera_data[piece_index].target_x_mm);
     target_y_pulse = camera_mm_to_pulse(camera_data[piece_index].target_y_mm);
-
-    camera_data[piece_index].take_move_x_mm = camera_data[piece_index].source_x_mm - previous_target_x_mm;
-    camera_data[piece_index].take_move_y_mm = camera_data[piece_index].source_y_mm - previous_target_y_mm;
-    camera_data[piece_index].put_move_x_mm = camera_data[piece_index].target_x_mm - camera_data[piece_index].source_x_mm;
-    camera_data[piece_index].put_move_y_mm = camera_data[piece_index].target_y_mm - camera_data[piece_index].source_y_mm;
 
     move_x_pulse = source_x_pulse - previous_target_x_pulse;
     if(move_x_pulse < 0)
@@ -551,8 +544,6 @@ static void camera_build_continuous_motion_data(uint8 piece_count)
 
     previous_target_x_pulse = target_x_pulse;
     previous_target_y_pulse = target_y_pulse;
-    previous_target_x_mm = camera_data[piece_index].target_x_mm;
-    previous_target_y_mm = camera_data[piece_index].target_y_mm;
   }
 }
 
@@ -628,6 +619,9 @@ void uart1_rx_callback(uint32 state, void *ptr)
 
   while(uart_query_byte(UART_1, &temp_data) == 1)
   {
+
+    uart_write_byte(UART_0, temp_data);  // 将 UART1 原始接收字节实时转发到 UART0，供上位机查看摄像头输出。
+
     if(temp_data == '\r')
       continue;
 
@@ -837,7 +831,14 @@ void uart4_rx_callback(uint32 interrupt_state, void *ptr)
       {
         if(temp_data == 0x5D)
         {
-          if(uart4_rx.rx_buf[0] == 1)
+          if(uart4_rx.rx_buf[0] == 0xFF && uart4_rx.rx_buf[1] == 0xFF)
+          {
+            last_state = state;                 // 保存清零前的运行状态。
+            state = 0;                          // 特殊停止帧使装置停止执行。
+            camera_plan_ready_flag = 0;         // 特殊停止帧使当前摄像头计划失效。
+            screen_stop_origin_request_flag = 1; // 通知主循环依次触发 XYZ 轴回零。
+          }
+          else if(uart4_rx.rx_buf[0] == 1)
           {
             last_state = state;                 // 保存切换前的运行状态。
             state = uart4_rx.rx_buf[1];         // 类型1：在完整帧接收中断内直接设置运行状态。

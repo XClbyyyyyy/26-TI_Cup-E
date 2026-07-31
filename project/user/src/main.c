@@ -38,7 +38,6 @@
 /**
  * @brief 程序入口，完成基础初始化后进入主循环。
  */
-//PB7无法输出PWM波，暂时不使用此引脚
 volatile uint8 count=0;											//计数器
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -50,7 +49,8 @@ static uint32 stepper_move_delay_ms(uint32 pulse_count, uint16 speed_rpm)
   uint64 pulse_frequency;  // 电机在当前转速下的每秒输出脉冲数，单位：pulse/s。
 
   pulse_frequency = (uint64)3200U * (uint64)speed_rpm;  // 16细分时电机轴每圈为3200脉冲。
-  return (uint32)(((uint64)pulse_count * 60000U + pulse_frequency - 1U) / pulse_frequency);
+  pulse_frequency /= 10U;  // 指令转速经过 10:1 减速后，实际输出端脉冲频率降为十分之一。
+  return (uint32)(((uint64)pulse_count * 60000U + pulse_frequency - 1U) / pulse_frequency) + 100U;  // 额外预留 100 ms，确保 XY 轴完成定位。
 }
 
 //-------------------------------------------------------------------------------------------------------------------
@@ -76,9 +76,9 @@ int main(void)
 	gpio_init(A21, GPO, GPIO_LOW, GPO_PUSH_PULL);			 // A21 推挽输出，打开蜂鸣器
 	gpio_init(B7, GPO, GPIO_LOW, GPO_PUSH_PULL);			 // PB7 推挽输出，打开电磁铁
 
-	uint8 take_flag=0,put_flag=0;				//取放标志位
-
-	uint16 Zspeed=600;									//Z轴速度
+	uint8 take_flag=0,put_flag=0;							 	 //取放标志位
+	uint16 Zspeed=1200;												 	 //Z轴速度
+  static uint8 camera_last_request_state = 0;  // 上一次已经处理摄像头模式请求的运行状态。
   while (true)
   {		
 		uart0_process_data();							// 处理调试串口数据，更新参数变量。
@@ -91,7 +91,27 @@ int main(void)
 		//XY轴电机转一圈4cm
 		//X轴逆时针为正，Z轴逆时针为正，Y左顺时针为正，Y右逆时针为正
 		//连续运动基准为机械原点；纸张中心相对原点的固定坐标已在摄像头数据换算中叠加。
-		if(state == 1 && camera_plan_ready_flag == 1)
+		if(screen_stop_origin_request_flag == 1)
+		{
+			screen_stop_origin_request_flag = 0;  // 当前回零请求已由主循环接管。
+			stepper_origin_trigger_return(STEPPER_ADDR_X, 2);  // 触发 X 轴多圈碰撞回零。
+			system_delay_ms(5);
+			stepper_origin_trigger_return(STEPPER_ADDR_Y, 2);  // 触发 Y 轴多圈碰撞回零。
+			system_delay_ms(5);
+			stepper_origin_trigger_return(STEPPER_ADDR_Z, 0);  // 触发 Z 轴单圈就近回零。
+		}
+
+		if(state == 0)
+		{
+			stepper_vel_control(STEPPER_ADDR_T, 0, 600,0);		// X 轴立即停止。
+		}
+		if(state == 2 || state == 3)
+		{
+			if(state != camera_last_request_state)
+				uart_printf(UART_1, "%d\n", state);  // 状态进入 2 或 3 时，仅发送一次对应的摄像头模式命令。
+		}
+		camera_last_request_state = state;
+		if(state != 0 && camera_plan_ready_flag == 1)
 		{
 			if(count < camera_piece_count)
 			{
@@ -107,21 +127,21 @@ int main(void)
 						stepper_origin_trigger_return(STEPPER_ADDR_Y,2);
 						system_delay_ms(5);
 					}
-					stepper_origin_trigger_return(STEPPER_ADDR_Z,0);
-					system_delay_ms(2000);
+					stepper_pos_control(STEPPER_ADDR_Z,1,Zspeed,0,1100,0);		//Z轴上升
+					system_delay_ms(400);	
 				}
 				else if(take_flag == 1 && put_flag == 0)
 				{
-					stepper_pos_control(STEPPER_ADDR_Z,1,Zspeed,0,800,0);		//Z轴上升
-					system_delay_ms(5);																											
+					stepper_pos_control(STEPPER_ADDR_Z,1,Zspeed,0,1100,0);		//Z轴上升
+					system_delay_ms(400);																											
 					stepper_pos_control(STEPPER_ADDR_Y,camera_data[count].put_dir_x,XYspeed,0,camera_data[count].put_move_x_pulse,0);  // 摄像头 X 坐标由 Y 电机执行。
 					system_delay_ms(5);
 					stepper_pos_control(STEPPER_ADDR_X,camera_data[count].put_dir_y,XYspeed,0,camera_data[count].put_move_y_pulse,0);  // 摄像头 Y 坐标由 X 电机执行。
 					system_delay_ms(stepper_xy_move_delay_ms(camera_data[count].put_move_x_pulse, camera_data[count].put_move_y_pulse, XYspeed));
-					stepper_pos_control(STEPPER_ADDR_Z,0,Zspeed,0,800,0);		//Z轴下降
-					system_delay_ms(255);																								// Z 轴固定800脉冲，60 RPM时理论250 ms，额外预留5 ms。
-					
+					stepper_pos_control(STEPPER_ADDR_Z,0,Zspeed,0,1100,0);		//Z轴下降
+					system_delay_ms(400);																			// Z 轴固定800脉冲，60 RPM时理论250 ms，额外预留5 ms。
 					gpio_set_level(B7, GPIO_LOW);	//电磁铁放
+					
 					put_flag = 1;
 				}
 				else if(take_flag == 0 && put_flag == 0)
@@ -130,17 +150,17 @@ int main(void)
 					system_delay_ms(5);
 					stepper_pos_control(STEPPER_ADDR_X,camera_data[count].Dir_y,XYspeed,0,camera_data[count].take_move_y_pulse,0);  // 摄像头 Y 坐标由 X 电机执行。
 					system_delay_ms(stepper_xy_move_delay_ms(camera_data[count].take_move_x_pulse, camera_data[count].take_move_y_pulse, XYspeed));
-					stepper_pos_control(STEPPER_ADDR_Z,0,Zspeed,0,800,0);															
-					system_delay_ms(255);																			// Z 轴固定800脉冲，60 RPM时理论250 ms，额外预留5 ms。
+					stepper_pos_control(STEPPER_ADDR_Z,0,Zspeed,0,1100,0);															
 					take_flag = 1;																				
 					gpio_set_level(B7, GPIO_HIGH);	//电磁铁吸
+					system_delay_ms(400);																			// Z 轴固定800脉冲，60 RPM时理论250 ms，额外预留5 ms。
 
 					if(camera_data[count].rotation_deg < 0.0F)
 					{
 						stepper_pos_control(STEPPER_ADDR_T,0,Tspeed,0,(uint16)(-camera_data[count].rotation_deg * 3200.0F / 360.0F + 0.5F),0);	//负角度顺时针旋转。
 						system_delay_ms(5);																												// T 轴与后续取放流程并行，保留命令发送间隔。
 					}
-					else if(camera_data[count].rotation_deg > 0.0F)
+					else if(camera_data[count].rotation_deg >= 0.0F)
 					{
 						stepper_pos_control(STEPPER_ADDR_T,1,Tspeed,0,(uint16)(camera_data[count].rotation_deg * 3200.0F / 360.0F + 0.5F),0);	//正角度逆时针旋转。
 						system_delay_ms(5);																												// T 轴与后续取放流程并行，保留命令发送间隔。
@@ -163,7 +183,7 @@ int main(void)
 		{
 			last_send_time = get_system_time_ms();
 
-			uart_printf(UART_0,"direction:%d\r\n",direction);
+			uart_printf(UART_0,"state=%d\n", state);
 			uart_printf(UART_4,"show.n2.val=%d\xff\xff\xff",state);	
 			uart_printf(UART_4,"test.n0.val=%d\xff\xff\xff",XYspeed);
 			uart_printf(UART_4,"test.n1.val=%d\xff\xff\xff",Tspeed);

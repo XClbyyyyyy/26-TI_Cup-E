@@ -15,7 +15,7 @@
 // 串口用途定义
 //-------------------------------------------------------------------------------------------------------------------
 // UART0: 串口调试(230400, 优先级7, TX=A10/RX=A11) 通道0=state, 通道1=left_speed, 通道2=right_speed, 通道3=Kp
-// UART1: 摄像头(921600, 优先级2, TX=A8/RX=A9)
+// UART1: 摄像头(115200, 优先级2, TX=A8/RX=A9)
 //   POS,mode,seq,x,y,distance_mm\n  ASCII协议
 //   发"1\n"切换模式1(中心点), 发"2\n"切换模式2(圆周点)
 // UART3: 步进电机(115200, 优先级1, TX=A14/RX=A13)
@@ -64,10 +64,6 @@ typedef struct
   float source_y_mm;      // 源碎片面积质心相对机械原点的 Y 坐标，单位：mm。
   float target_x_mm;      // 目标碎片面积质心相对机械原点的 X 坐标，单位：mm。
   float target_y_mm;      // 目标碎片面积质心相对机械原点的 Y 坐标，单位：mm。
-  float take_move_x_mm;   // 从原点或上一块目标位置移动到源碎片的 X 位移，单位：mm。
-  float take_move_y_mm;   // 从原点或上一块目标位置移动到源碎片的 Y 位移，单位：mm。
-  float put_move_x_mm;    // 从源碎片移动到当前目标位置的 X 位移，单位：mm。
-  float put_move_y_mm;    // 从源碎片移动到当前目标位置的 Y 位移，单位：mm。
   uint32 take_move_x_pulse; // 从原点或上一块目标位置移动到源碎片所需的 X 轴脉冲数。
   uint32 take_move_y_pulse; // 从原点或上一块目标位置移动到源碎片所需的 Y 轴脉冲数。
   uint32 put_move_x_pulse;  // 从源碎片移动到当前目标位置所需的 X 轴脉冲数。
@@ -124,5 +120,7 @@ void uart4_process_data(void);
 void uart_printf(uart_index_enum uart_index, const char *format, ...);
 
 
+
+extern volatile uint8 screen_stop_origin_request_flag; // 串口屏特殊停止帧触发的 XYZ 回零请求标志，0=无请求，1=请求回零。
 
 #endif
