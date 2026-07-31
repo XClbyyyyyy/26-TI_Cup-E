@@ -20,7 +20,7 @@
 //   发"1\n"切换模式1(中心点), 发"2\n"切换模式2(圆周点)
 // UART3: 步进电机(115200, 优先级1, TX=A14/RX=A13)
 // UART4: 串口屏(230400, 优先级4, TX=B17/RX=B18)，帧格式为 0x5B-类型-数值-0x5D。
-//   类型1：数值直接设置 state；类型2、3：数值作为 int8 增量调整 XYspeed、Tspeed。
+//   类型1：数值直接设置 state；类型0x02-0x05：按数值0/1使 X/Y/Z/T 轴向机械负/正方向点动 800 脉冲；0xFF-0xFF：停止执行并请求各轴回零。
 
 //-------------------------------------------------------------------------------------------------------------------
 // 引脚定义
@@ -92,8 +92,9 @@ extern uint8 direction;                    // 无线串口 I1 设置的 Y 轴方
 
 extern volatile uint8 state;       // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他；可由 UART4 中断更新。
 extern uint8 last_state;           // 上一次运行状态
-extern uint16 XYspeed;             // X、Y 轴速度，单位：RPM；UART4 可按有符号增量调整。
-extern uint16 Tspeed;              // T 轴电机轴速度，单位：RPM；UART4 可按有符号增量调整。
+extern uint16 XYspeed;             // X、Y 轴速度，单位：RPM。
+extern uint16 Zspeed;              // Z 轴速度，单位：RPM。
+extern uint16 Tspeed;              // T 轴电机轴速度，单位：RPM。
 //-------------------------------------------------------------------------------------------------------------------
 // 函数声明
 //-------------------------------------------------------------------------------------------------------------------
@@ -115,7 +116,7 @@ void uart5_rx_callback(uint32 state, void *ptr);
 
 void uart4_init_screen(void);
 void uart4_rx_callback(uint32 interrupt_state, void *ptr);
-void uart4_process_data(void);
+void uart4_process_manual_move(void);
 
 void uart_printf(uart_index_enum uart_index, const char *format, ...);
 

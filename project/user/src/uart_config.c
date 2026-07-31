@@ -41,9 +41,14 @@ static uint8 camera_pending_active_flag;           // 当前暂存批次有效�
 volatile uint8 state = 0;   // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他；UART4 中断可修改。
 uint8 last_state=0;         // 上一次运行状态
 uint16 XYspeed = 1200;      // X、Y 轴基础速度，单位：RPM。
-uint16 Tspeed = 600;        // T 轴电机轴基础速度，单位：RPM。
-uint8 direction = 0;         // 无线串口 I1 设置的 Y 轴方向：0=负向，1=正向。
+uint16 Zspeed = 1200;       // Z 轴基础速度，单位：RPM。
+uint16 Tspeed = 75;        // T 轴电机轴基础速度，单位：RPM。
+uint8 direction = 0;        // 无线串口 I1 设置的 Y 轴方向：0=负向，1=正向。
 extern uint8 count;         // 计数器
+
+static volatile uint8 uart4_manual_axis;                 // 串口屏手动点动请求的轴号，0x02=X、0x03=Y、0x04=Z、0x05=T。
+static volatile uint8 uart4_manual_direction;            // 串口屏手动点动方向，0=机械负方向、1=机械正方向。
+static volatile uint8 uart4_manual_move_request_flag;    // 串口屏手动点动请求标志，0=无请求、1=有请求。
 
 //====================================================================================================================
 // UART0 - 串口调试
@@ -789,14 +794,17 @@ void uart4_init_screen(void)
   uart4_rx.state = 0;  // 状态0: 等待帧头
   uart4_rx.rx_len = 0;
   uart4_rx.frame_ready = 0;
+  uart4_manual_axis = 0;
+  uart4_manual_direction = 0;
+  uart4_manual_move_request_flag = 0;
 }
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     UART4 串口屏接收回调函数 (固定四字节帧)
 // 状态机逻辑:
 //   state=0: 等待帧头0x5B
-//   state=1: 接收设置类型，1=state、2=XYspeed、3=Tspeed
-//   state=2: 接收设置值；速度类型按 int8 有符号增量解析
+//   state=1: 接收命令类型，1=state，0x02-0x05=手动点动轴，0xFF=特殊停止命令
+//   state=2: 接收命令值，手动点动时0=机械负方向、1=机械正方向
 //   state=3: 等待并验证帧尾0x5D
 //-------------------------------------------------------------------------------------------------------------------
 void uart4_rx_callback(uint32 interrupt_state, void *ptr)
@@ -843,7 +851,15 @@ void uart4_rx_callback(uint32 interrupt_state, void *ptr)
             last_state = state;                 // 保存切换前的运行状态。
             state = uart4_rx.rx_buf[1];         // 类型1：在完整帧接收中断内直接设置运行状态。
           }
-          uart4_rx.frame_ready = 1;  // 帧头、两个数据字节和帧尾均正确
+          else if(uart4_rx.rx_buf[0] >= 0x02 && uart4_rx.rx_buf[0] <= 0x05)
+          {
+            if(uart4_rx.rx_buf[1] == 0 || uart4_rx.rx_buf[1] == 1)
+            {
+              uart4_manual_axis = uart4_rx.rx_buf[0];                 // 保存手动点动目标轴。
+              uart4_manual_direction = uart4_rx.rx_buf[1];            // 保存机械坐标方向。
+              uart4_manual_move_request_flag = 1;                     // 交由主循环发送电机命令，避免在中断内占用 UART3。
+            }
+          }
         }
 
         if(temp_data == 0x5B)
@@ -859,50 +875,53 @@ void uart4_rx_callback(uint32 interrupt_state, void *ptr)
 }
 
 //-------------------------------------------------------------------------------------------------------------------
-// 函数简介     UART4 串口屏数据处理函数
-// 备注信息     仅处理格式为 0x5B-类型-数值-0x5D 的有效固定帧。
-//              类型1已在接收中断内设置 state；类型2、3将数值按 int8 加到当前速度。
+// 函数简介     执行串口屏请求的单轴点动
+// 备注信息     每次有效请求仅移动一个轴 800 脉冲；方向按照主程序机械坐标约定转换为驱动器方向。
 //-------------------------------------------------------------------------------------------------------------------
-void uart4_process_data(void)
+void uart4_process_manual_move(void)
 {
-  int16 speed_adjustment;  // 串口屏速度增量，取值范围：-128 至 127 RPM。
+  uint8 manual_axis;       // 本次点动的串口屏轴号。
+  uint8 manual_direction;  // 本次点动的机械坐标方向，0=负方向、1=正方向。
+  uint8 motor_direction;   // 传给驱动器的位置模式方向，0=顺时针、1=逆时针。
 
-  if(uart4_rx.frame_ready == 1)
+  if(uart4_manual_move_request_flag == 1)
   {
-    if(uart4_rx.rx_len == 2)
+    manual_axis = uart4_manual_axis;
+    manual_direction = uart4_manual_direction;
+    uart4_manual_move_request_flag = 0;  // 当前请求已由主循环接管。
+
+    if(manual_axis == 0x02)
     {
-      if(uart4_rx.rx_buf[0] == 2)
-      {
-        speed_adjustment = (int8)uart4_rx.rx_buf[1];
-        if(speed_adjustment < 0)
-        {
-          if(XYspeed > (uint16)(-speed_adjustment))
-            XYspeed += speed_adjustment;
-          else
-            XYspeed = 1;                     // 速度至少为 1 RPM，避免下溢或零速度。
-        }
-        else if((uint32)XYspeed + (uint16)speed_adjustment <= 65535)
-          XYspeed += (uint16)speed_adjustment;
-        else
-          XYspeed = 65535;                   // 类型2：限制在 uint16 可表示的最大速度。
-      }
-      else if(uart4_rx.rx_buf[0] == 3)
-      {
-        speed_adjustment = (int8)uart4_rx.rx_buf[1];
-        if(speed_adjustment < 0)
-        {
-          if(Tspeed > (uint16)(-speed_adjustment))
-            Tspeed += speed_adjustment;
-          else
-            Tspeed = 1;                      // 速度至少为 1 RPM，避免下溢或零速度。
-        }
-        else if((uint32)Tspeed + (uint16)speed_adjustment <= 65535)
-          Tspeed += (uint16)speed_adjustment;
-        else
-          Tspeed = 65535;                    // 类型3：限制在 uint16 可表示的最大速度。
-      }
+      if(manual_direction == 0)
+        motor_direction = 0;  // 机械 X 轴负方向由 Y 电机顺时针执行。
+      else
+        motor_direction = 1;  // 机械 X 轴正方向由 Y 电机逆时针执行。
+      stepper_pos_control(STEPPER_ADDR_Y, motor_direction, XYspeed, 0, 800, 0);
     }
-    uart4_rx.frame_ready = 0;
+    else if(manual_axis == 0x03)
+    {
+      if(manual_direction == 0)
+        motor_direction = 0;  // 机械 Y 轴负方向由 X 电机顺时针执行。
+      else
+        motor_direction = 1;  // 机械 Y 轴正方向由 X 电机逆时针执行。
+      stepper_pos_control(STEPPER_ADDR_X, motor_direction, XYspeed, 0, 800, 0);
+    }
+    else if(manual_axis == 0x04)
+    {
+      if(manual_direction == 0)
+        motor_direction = 0;  // Z 轴下降为机械负方向。
+      else
+        motor_direction = 1;  // Z 轴上升为机械正方向。
+      stepper_pos_control(STEPPER_ADDR_Z, motor_direction, Zspeed, 0, 800, 0);
+    }
+    else if(manual_axis == 0x05)
+    {
+      if(manual_direction == 0)
+        motor_direction = 1;  // T 轴负角度为顺时针。
+      else
+        motor_direction = 0;  // T 轴正角度为逆时针。
+      stepper_pos_control(STEPPER_ADDR_T, motor_direction, Tspeed, 0, 800, 0);
+    }
   }
 }
 
