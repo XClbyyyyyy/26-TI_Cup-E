@@ -41,9 +41,9 @@ static volatile uint8 camera_receive_enabled_flag; // 摄像头计划接收窗�
 
 volatile uint8 state = 0;   // 运行状态: 0=待机, 1=小车运动, 2=镜头运动, 3=两者, 4=其他；UART4 中断可修改。
 uint8 last_state=0;         // 上一次运行状态
-uint16 XYspeed = 1200;      // X、Y 轴基础速度，单位：RPM。
+uint16 XYspeed = 2400;      // X、Y 轴基础速度，单位：RPM。
 uint16 Zspeed = 600;        // Z 轴基础速度，单位：RPM。
-uint16 Tspeed = 75;        // T 轴电机轴基础速度，单位：RPM。
+uint16 Tspeed = 225;        // T 轴电机轴基础速度，单位：RPM。
 uint8 direction = 0;        // 无线串口 I1 设置的 Y 轴方向：0=负向，1=正向。
 extern uint8 count;         // 计数器
 
@@ -970,7 +970,7 @@ void uart4_rx_callback(uint32 interrupt_state, void *ptr)
 
 //-------------------------------------------------------------------------------------------------------------------
 // 函数简介     执行串口屏请求的单轴点动
-// 备注信息     每次有效请求仅移动一个轴 800 脉冲；方向按照主程序机械坐标约定转换为驱动器方向。
+// 备注信息     每次有效请求仅移动一个轴；X/Y 为 800 脉冲，Z 为 250 脉冲，T 为 400 脉冲。
 //-------------------------------------------------------------------------------------------------------------------
 void uart4_process_manual_move(void)
 {
@@ -1006,7 +1006,7 @@ void uart4_process_manual_move(void)
         motor_direction = 0;  // Z 轴下降为机械负方向。
       else
         motor_direction = 1;  // Z 轴上升为机械正方向。
-      stepper_pos_control(STEPPER_ADDR_Z, motor_direction, Zspeed, 0, 800, 0);
+      stepper_pos_control(STEPPER_ADDR_Z, motor_direction, Zspeed, 0, 250, 0);
     }
     else if(manual_axis == 0x05)
     {
@@ -1014,7 +1014,7 @@ void uart4_process_manual_move(void)
         motor_direction = 1;  // T 轴负角度为顺时针。
       else
         motor_direction = 0;  // T 轴正角度为逆时针。
-      stepper_pos_control(STEPPER_ADDR_T, motor_direction, Tspeed, 0, 800, 0);
+      stepper_pos_control(STEPPER_ADDR_T, motor_direction, Tspeed, 0, 400, 0);
     }
   }
 }

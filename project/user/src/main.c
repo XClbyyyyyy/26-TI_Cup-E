@@ -84,6 +84,11 @@ int main(void)
 		uart4_process_manual_move(); // 执行串口屏请求的单轴点动。
 		uart0_process_data();				 // 处理调试串口数据，更新参数变量。
 		camera_request_state = state;
+  if ((camera_request_state == 1 || camera_request_state == 2 || camera_request_state == 3) && camera_request_state != camera_last_request_state)
+  {
+    stepper_pos_control(STEPPER_ADDR_X, 0, 3000, 0, 23500, 0); // X 电机以 3000 RPM 顺时针转动 23500 脉冲。
+    system_delay_ms(stepper_move_delay_ms(23500, 3000) + 500U); // 按 3000 RPM 等待 X 电机完成运动，并额外预留 1 秒。
+  }
 		if (camera_request_state == 1 || camera_request_state == 2 || camera_request_state == 3) // 状态切换后仅请求一次对应摄像头模式。
 		{
 			if (camera_request_state != camera_last_request_state)
@@ -143,12 +148,12 @@ int main(void)
 					if (camera_data[count].rotation_deg < 0.0F)
 					{
 						stepper_pos_control(STEPPER_ADDR_T, 1, Tspeed, 0, (uint16)(-camera_data[count].rotation_deg * 3200.0F / 360.0F + 0.5F), 0); // 负角度逆时针旋转。
-						system_delay_ms(stepper_move_delay_ms((uint32)(-camera_data[count].rotation_deg * 3200.0F / 360.0F + 0.5F), Tspeed)); // 等待 T 轴完成负角度旋转并预留 100 ms。
+						system_delay_ms(5); // 等待 T 轴完成负角度旋转并预留 100 ms。
 					}
 					else if (camera_data[count].rotation_deg >= 0.0F)
 					{
 						stepper_pos_control(STEPPER_ADDR_T, 0, Tspeed, 0, (uint16)(camera_data[count].rotation_deg * 3200.0F / 360.0F + 0.5F), 0); // 正角度顺时针旋转。
-						system_delay_ms(stepper_move_delay_ms((uint32)(camera_data[count].rotation_deg * 3200.0F / 360.0F + 0.5F), Tspeed)); // 等待 T 轴完成正角度旋转并预留 100 ms。
+						system_delay_ms(5); // 等待 T 轴完成正角度旋转并预留 100 ms。
 					}
 					stepper_pos_control(STEPPER_ADDR_Y, camera_data[count].put_dir_x, XYspeed, 0, camera_data[count].put_move_x_pulse, 0); // 摄像头 X 坐标由 Y 电机执行。
 					system_delay_ms(5);
